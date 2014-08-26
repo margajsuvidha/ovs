@@ -96,6 +96,7 @@ struct dpif_backer_support {
 
     /* True if the datapath supports OVS_FLOW_ATTR_UFID. */
     bool ufid;
+    bool conn_state;
 };
 
 size_t ofproto_dpif_get_max_mpls_depth(const struct ofproto_dpif *);
