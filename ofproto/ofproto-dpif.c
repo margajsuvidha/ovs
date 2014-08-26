@@ -1225,17 +1225,63 @@ check_masked_set_action(struct dpif_backer *backer)
     return !error;
 }
 
+#define CHECK_FEATURE__(NAME, FIELD)                                        \
+static bool                                                                 \
+check_##NAME(struct dpif_backer *backer)                                    \
+{                                                                           \
+    struct flow flow;                                                       \
+    struct odputil_keybuf keybuf;                                           \
+    struct ofpbuf key;                                                      \
+    bool enable;                                                            \
+    struct odp_flow_key_parms odp_parms = {                                 \
+        .flow = &flow,                                                      \
+        .support = {                                                        \
+            .NAME = true,                                                  \
+        },                                                                  \
+    };                                                                      \
+                                                                            \
+    memset(&flow, 0, sizeof flow);                                          \
+    flow.FIELD = 1;                                                         \
+                                                                            \
+    ofpbuf_use_stack(&key, &keybuf, sizeof keybuf);                         \
+    odp_flow_key_from_flow(&odp_parms, &key);                               \
+    enable = dpif_probe_feature(backer->dpif, #NAME, &key, NULL);           \
+                                                                            \
+    if (enable) {                                                           \
+        VLOG_INFO("%s: Datapath supports "#NAME, dpif_name(backer->dpif));  \
+    } else {                                                                \
+        VLOG_INFO("%s: Datapath does not support "#NAME,                    \
+                  dpif_name(backer->dpif));                                 \
+    }                                                                       \
+                                                                            \
+    return enable;                                                          \
+}
+#define CHECK_FEATURE(FIELD) CHECK_FEATURE__(FIELD, FIELD)
+
+CHECK_FEATURE(conn_state)
+CHECK_FEATURE(conn_zone)
+CHECK_FEATURE(conn_mark)
+CHECK_FEATURE__(conn_label, conn_label.u64.lo)
+
+#undef CHECK_FEATURE
+#undef CHECK_FEATURE__
+
 static void
 check_support(struct dpif_backer *backer)
 {
     /* This feature needs to be tested after udpif threads are set. */
     backer->support.variable_length_userdata = false;
 
-    backer->support.odp.recirc = check_recirc(backer);
-    backer->support.odp.max_mpls_depth = check_max_mpls_depth(backer);
     backer->support.masked_set_action = check_masked_set_action(backer);
     backer->support.ufid = check_ufid(backer);
     backer->support.tnl_push_pop = dpif_supports_tnl_push_pop(backer->dpif);
+
+    backer->support.odp.recirc = check_recirc(backer);
+    backer->support.odp.max_mpls_depth = check_max_mpls_depth(backer);
+    backer->support.odp.conn_state = check_conn_state(backer);
+    backer->support.odp.conn_zone = check_conn_zone(backer);
+    backer->support.odp.conn_mark = check_conn_mark(backer);
+    backer->support.odp.conn_label = check_conn_label(backer);
 }
 
 static int
@@ -3949,10 +3995,42 @@ rule_dealloc(struct rule *rule_)
 }
 
 static enum ofperr
+rule_check(struct rule *rule)
+{
+    struct ofproto_dpif *ofproto = ofproto_dpif_cast(rule->ofproto);
+    const struct odp_support *support;
+    struct match match;
+
+    minimatch_expand(&rule->cr.match, &match);
+    support = &ofproto_dpif_get_support(ofproto)->odp;
+
+    if ((match.wc.masks.conn_state && !support->conn_state)
+        || (match.wc.masks.conn_zone && !support->conn_zone)
+        || (match.wc.masks.conn_mark && !support->conn_mark)
+        || (!support->conn_label
+            && !is_all_zeros(&match.wc.masks.conn_label,
+                             sizeof(match.wc.masks.conn_label)))) {
+        return OFPERR_OFPBMC_BAD_FIELD;
+    }
+    if (match.wc.masks.conn_state & CS_UNSUPPORTED_MASK) {
+        return OFPERR_OFPBMC_BAD_MASK;
+    }
+
+    return 0;
+}
+
+static enum ofperr
 rule_construct(struct rule *rule_)
     OVS_NO_THREAD_SAFETY_ANALYSIS
 {
     struct rule_dpif *rule = rule_dpif_cast(rule_);
+    int error;
+
+    error = rule_check(rule_);
+    if (error) {
+        return error;
+    }
+
     ovs_mutex_init_adaptive(&rule->stats_mutex);
     rule->stats.n_packets = 0;
     rule->stats.n_bytes = 0;

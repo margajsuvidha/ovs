@@ -73,6 +73,7 @@ BUILD_ASSERT_DECL(N_TABLES >= 2 && N_TABLES <= 255);
  *   Ofproto-dpif-xlate is responsible for translating OpenFlow actions into
  *   datapath actions. */
 
+
 /* Stores the various features which the corresponding backer supports. */
 struct dpif_backer_support {
     /* True if the datapath supports variable-length
