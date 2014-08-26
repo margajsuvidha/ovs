@@ -97,7 +97,7 @@ struct xbridge {
     bool forward_bpdu;            /* Bridge forwards STP BPDUs? */
 
     /* Datapath feature support. */
-    struct dpif_backer_support support;
+    struct odp_support support;
 };
 
 struct xbundle {
@@ -285,6 +285,11 @@ struct xlate_ctx {
      * or looking up a flow requires access to the fields of the packet after
      * the MPLS label stack that was originally present. */
     bool was_mpls;
+
+    /* True if conntrack has been performed on this packet during processing
+     * on the current bridge. This is used to determine whether conntrack
+     * state from the datapath should be honored after recirculation. */
+    bool conntracked;
 
     /* OpenFlow 1.1+ action set.
      *
@@ -483,7 +488,7 @@ static void xlate_xbridge_set(struct xbridge *, struct dpif *,
                               const struct dpif_ipfix *,
                               const struct netflow *,
                               bool forward_bpdu, bool has_in_band,
-                              const struct dpif_backer_support *);
+                              const struct odp_support *);
 static void xlate_xbundle_set(struct xbundle *xbundle,
                               enum port_vlan_mode vlan_mode, int vlan,
                               unsigned long *trunks, bool use_priority_tags,
@@ -555,7 +560,7 @@ xlate_xbridge_set(struct xbridge *xbridge,
                   const struct dpif_ipfix *ipfix,
                   const struct netflow *netflow,
                   bool forward_bpdu, bool has_in_band,
-                  const struct dpif_backer_support *support)
+                  const struct odp_support *support)
 {
     if (xbridge->ml != ml) {
         mac_learning_unref(xbridge->ml);
@@ -837,7 +842,7 @@ xlate_ofproto_set(struct ofproto_dpif *ofproto, const char *name,
                   const struct dpif_ipfix *ipfix,
                   const struct netflow *netflow,
                   bool forward_bpdu, bool has_in_band,
-                  const struct dpif_backer_support *support)
+                  const struct odp_support *support)
 {
     struct xbridge *xbridge;
 
@@ -2753,6 +2758,15 @@ build_tunnel_send(struct xlate_ctx *ctx, const struct xport *xport,
 }
 
 static void
+clear_conntrack(struct flow *flow)
+{
+    flow->conn_state = 0;
+    flow->conn_zone = 0;
+    flow->conn_mark = 0;
+    memset(&flow->conn_label, 0, sizeof flow->conn_label);
+}
+
+static void
 compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                         const struct xlate_bond_recirc *xr, bool check_stp)
 {
@@ -2761,7 +2775,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     struct flow *flow = &ctx->xin->flow;
     struct flow_tnl flow_tnl;
     ovs_be16 flow_vlan_tci;
-    uint32_t flow_pkt_mark;
+    uint32_t flow_pkt_mark, flow_conn_mark;
+    uint8_t flow_conn_state;
+    uint16_t flow_conn_zone;
+    ovs_u128 flow_conn_label;
     uint8_t flow_nw_tos;
     odp_port_t out_port, odp_port;
     bool tnl_push_pop_send = false;
@@ -2769,7 +2786,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
 
     /* If 'struct flow' gets additional metadata, we'll need to zero it out
      * before traversing a patch port. */
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
     memset(&flow_tnl, 0, sizeof flow_tnl);
 
     if (!xport) {
@@ -2814,6 +2831,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         struct flow old_flow = ctx->xin->flow;
         bool old_was_mpls = ctx->was_mpls;
         cls_version_t old_version = ctx->tables_version;
+        bool old_conntracked = ctx->conntracked;
         enum slow_path_reason special;
         struct ofpbuf old_stack = ctx->stack;
         union mf_subvalue new_stack[1024 / sizeof(union mf_subvalue)];
@@ -2832,6 +2850,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         /* The bridge is now known so obtain its table version. */
         ctx->tables_version
             = ofproto_dpif_get_tables_version(ctx->xbridge->ofproto);
+
+        /* Drop conntrack metadata when traversing a peer. */
+        clear_conntrack(flow);
+        ctx->conntracked = false;
 
         special = process_special(ctx, &ctx->xin->flow, peer,
                                   ctx->xin->packet);
@@ -2886,6 +2908,8 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
          * bridge. */
         ctx->was_mpls = old_was_mpls;
 
+        ctx->conntracked = old_conntracked;
+
         /* The fact that the peer bridge exits (for any reason) does not mean
          * that the original bridge should exit.  Specifically, if the peer
          * bridge recirculates (which typically modifies the packet), the
@@ -2913,7 +2937,11 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
 
     flow_vlan_tci = flow->vlan_tci;
     flow_pkt_mark = flow->pkt_mark;
+    flow_conn_state = flow->conn_state;
+    flow_conn_zone = flow->conn_zone;
+    flow_conn_label = flow->conn_label;
     flow_nw_tos = flow->nw_tos;
+    flow_conn_mark = flow->conn_mark;
 
     if (count_skb_priorities(xport)) {
         memset(&wc->masks.skb_priority, 0xff, sizeof wc->masks.skb_priority);
@@ -3034,6 +3062,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     /* Restore flow */
     flow->vlan_tci = flow_vlan_tci;
     flow->pkt_mark = flow_pkt_mark;
+    flow->conn_state = flow_conn_state;
+    flow->conn_zone = flow_conn_zone;
+    flow->conn_mark = flow_conn_mark;
+    flow->conn_label = flow_conn_label;
     flow->nw_tos = flow_nw_tos;
 }
 
@@ -3476,31 +3508,26 @@ execute_controller_action(struct xlate_ctx *ctx, int len,
     dp_packet_delete(packet);
 }
 
-/* Called only when ctx->recirc_action_offset is set. */
 static void
-compose_recirculate_action(struct xlate_ctx *ctx)
+compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
+                             int action_offset, uint32_t ofpacts_len,
+                             const struct ofpact *ofpacts)
 {
     struct recirc_metadata md;
-    bool use_masked;
     uint32_t id;
-
-    use_masked = ctx->xbridge->support.masked_set_action;
-    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
-                                          ctx->xout->odp_actions,
-                                          &ctx->xout->wc, use_masked);
 
     recirc_metadata_from_flow(&md, &ctx->xin->flow);
 
-    ovs_assert(ctx->recirc_action_offset >= 0);
+    ovs_assert(action_offset >= 0);
 
     /* Only allocate recirculation ID if we have a packet. */
     if (ctx->xin->packet) {
         /* Allocate a unique recirc id for the given metadata state in the
          * flow.  The life-cycle of this recirc id is managed by associating it
          * with the udpif key ('ukey') created for each new datapath flow. */
-        id = recirc_alloc_id_ctx(ctx->xbridge->ofproto, 0, &md, &ctx->stack,
-                                 ctx->recirc_action_offset,
-                                 ctx->action_set.size, ctx->action_set.data);
+        id = recirc_alloc_id_ctx(ctx->xbridge->ofproto, 0, ctx->conntracked,
+                                 &md, stack, action_offset, ofpacts_len,
+                                 ofpacts);
         if (!id) {
             static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
             VLOG_ERR_RL(&rl, "Failed to allocate recirculation id");
@@ -3511,14 +3538,28 @@ compose_recirculate_action(struct xlate_ctx *ctx)
         /* Look up an existing recirc id for the given metadata state in the
          * flow.  No new reference is taken, as the ID is RCU protected and is
          * only required temporarily for verification. */
-        id = recirc_find_id(ctx->xbridge->ofproto, 0, &md, &ctx->stack,
-                            ctx->recirc_action_offset,
-                            ctx->action_set.size, ctx->action_set.data);
+        id = recirc_find_id(ctx->xbridge->ofproto, 0, ctx->conntracked, &md,
+                            stack, action_offset, ofpacts_len, ofpacts);
         /* We let zero 'id' to be used in the RECIRC action below, which will
          * fail all revalidations as zero is not a valid recirculation ID. */
     }
 
     nl_msg_put_u32(ctx->xout->odp_actions, OVS_ACTION_ATTR_RECIRC, id);
+}
+
+/* Called only when ctx->recirc_action_offset is set. */
+static void
+compose_recirculate_action(struct xlate_ctx *ctx)
+{
+    bool use_masked;
+
+    use_masked = ctx->xbridge->support.masked_set_action;
+    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
+                                          ctx->xout->odp_actions,
+                                          &ctx->xout->wc, use_masked);
+
+    compose_recirculate_action__(ctx, &ctx->stack, ctx->recirc_action_offset,
+                                 ctx->action_set.size, ctx->action_set.data);
 
     /* Undo changes done by recirculation. */
     ctx->action_set.size = ctx->recirc_action_offset;
@@ -4066,6 +4107,7 @@ recirc_unroll_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         case OFPACT_WRITE_ACTIONS:
         case OFPACT_METER:
         case OFPACT_SAMPLE:
+        case OFPACT_CT:
             break;
 
             /* These need not be copied for restoration. */
@@ -4087,6 +4129,52 @@ recirc_unroll_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
     if (COND) {                           \
         CHECK_MPLS_RECIRCULATION();       \
     }
+
+static void
+put_connhelper(struct ofpbuf *odp_actions, struct ofpact_conntrack *ofc)
+{
+    if (ofc->alg) {
+        /* XXX: Is this always in netinet/in.h? */
+        if (ofc->alg == IPPORT_FTP) {
+            const char *helper = "ftp";
+
+            nl_msg_put_string__(odp_actions, OVS_CT_ATTR_HELPER, helper,
+                                strlen(helper));
+        } else {
+            VLOG_WARN("Cannot serialize connhelper %d\n", ofc->alg);
+        }
+    }
+}
+
+static void
+compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
+{
+    struct ofpbuf *odp_actions = ctx->xout->odp_actions;
+    uint32_t flags = 0;
+    size_t ct_offset;
+    bool use_masked;
+
+    use_masked = ctx->xbridge->support.masked_set_action;
+    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
+                                          ctx->xout->odp_actions,
+                                          &ctx->xout->wc, use_masked);
+
+    if (ofc->flags & NX_CT_F_COMMIT) {
+        flags |= OVS_CT_F_COMMIT;
+    }
+
+    ct_offset = nl_msg_start_nested(odp_actions, OVS_ACTION_ATTR_CT);
+    nl_msg_put_u32(odp_actions, OVS_CT_ATTR_FLAGS, flags);
+    nl_msg_put_u16(odp_actions, OVS_CT_ATTR_ZONE, ofc->zone);
+    put_connhelper(odp_actions, ofc);
+    nl_msg_end_nested(odp_actions, ct_offset);
+
+    if (ofc->flags & NX_CT_F_RECIRC) {
+        /* Use conn_* fields from datapath during recirculation upcall. */
+        ctx->conntracked = true;
+        compose_recirculate_action__(ctx, NULL, 0, 0, NULL);
+    }
+}
 
 static void
 do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
@@ -4452,6 +4540,10 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         case OFPACT_SAMPLE:
             xlate_sample_action(ctx, ofpact_get_SAMPLE(a));
             break;
+
+        case OFPACT_CT:
+            compose_conntrack_action(ctx, ofpact_get_CT(a));
+            break;
         }
 
         /* Check if need to store this and the remaining actions for later
@@ -4772,6 +4864,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     ctx.was_mpls = false;
     ctx.recirc_action_offset = -1;
     ctx.last_unroll_offset = -1;
+    ctx.conntracked = false;
 
     ctx.action_set_has_group = false;
     ofpbuf_use_stub(&ctx.action_set,
@@ -4813,6 +4906,10 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         /* Set the post-recirculation table id.  Note: A table lookup is done
          * only if there are no post-recirculation actions. */
         ctx.table_id = recirc->table_id;
+
+        if (!recirc->conntrack) {
+            clear_conntrack(flow);
+        }
 
         /* Restore pipeline metadata. May change flow's in_port and other
          * metadata to the values that existed when recirculation was

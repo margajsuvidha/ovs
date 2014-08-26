@@ -123,7 +123,7 @@ struct mf_ctx {
  * away.  Some GCC versions gave warnings on ALWAYS_INLINE, so these are
  * defined as macros. */
 
-#if (FLOW_WC_SEQ != 31)
+#if (FLOW_WC_SEQ != 32)
 #define MINIFLOW_ASSERT(X) ovs_assert(X)
 BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
                "assertions enabled. Consider updating FLOW_WC_SEQ after "
@@ -178,6 +178,24 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
         *((uint16_t *)MF.data + 2) = VALUE;                             \
     } else if ((OFS) % 8 == 6) {                                        \
         *((uint16_t *)MF.data + 3) = VALUE;                             \
+        MF.data++;                                                      \
+    }                                                                   \
+}
+
+/* Are there any other asserts we need for pushing one octet? */
+#define miniflow_push_uint8_(MF, OFS, VALUE)                            \
+{                                                                       \
+    MINIFLOW_ASSERT(MF.data < MF.end &&                                 \
+                    ((OFS) % 8 != 0                                     \
+                     || !(MF.map & (UINT64_MAX << (OFS) / 8))))         \
+                                                                        \
+    if ((OFS) % 8 == 0) {                                               \
+        *(uint8_t *)MF.data = VALUE;                                    \
+        MF.map |= UINT64_C(1) << (OFS) / 8;                             \
+    } else if ((OFS) % 8 < 7) {                                         \
+        *((uint8_t *)MF.data + (OFS % 8)) = VALUE;                      \
+    } else {                                                            \
+        *((uint8_t *)MF.data + 7) = VALUE;                              \
         MF.data++;                                                      \
     }                                                                   \
 }
@@ -239,6 +257,9 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
     MF.map |= UINT64_C(3) << ofs64; /* Both words. */           \
 }
 
+#define miniflow_push_uint64(MF, FIELD, VALUE)                      \
+    miniflow_push_uint64_(MF, offsetof(struct flow, FIELD), VALUE)
+
 #define miniflow_push_uint32(MF, FIELD, VALUE)                      \
     miniflow_push_uint32_(MF, offsetof(struct flow, FIELD), VALUE)
 
@@ -250,6 +271,9 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
 
 #define miniflow_push_be16(MF, FIELD, VALUE)                        \
     miniflow_push_be16_(MF, offsetof(struct flow, FIELD), VALUE)
+
+#define miniflow_push_uint8(MF, FIELD, VALUE)                      \
+    miniflow_push_uint8_(MF, offsetof(struct flow, FIELD), VALUE)
 
 #define miniflow_pad_to_64(MF, FIELD)                       \
     miniflow_pad_to_64_(MF, offsetof(struct flow, FIELD))
@@ -449,6 +473,17 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
     if (md->recirc_id) {
         miniflow_push_uint32(mf, recirc_id, md->recirc_id);
         miniflow_pad_to_64(mf, conj_id);
+    }
+
+    if (md->conn_mark || md->conn_zone || md->conn_state) {
+        miniflow_push_uint32(mf, conn_mark, md->conn_mark);
+        miniflow_push_uint16(mf, conn_zone, md->conn_zone);
+        miniflow_push_uint8(mf, conn_state, md->conn_state);
+        miniflow_pad_to_64(mf, pad1);
+    }
+    if (!is_all_zeros(&md->conn_label, sizeof md->conn_label)) {
+        miniflow_push_words(mf, conn_label, &md->conn_label,
+                            sizeof md->conn_label / 8);
     }
 
     /* Initialize packet's layer pointer and offsets. */
@@ -766,7 +801,7 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
 {
     int i;
 
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
 
     match_init_catchall(flow_metadata);
     if (flow->tunnel.tun_id != htonll(0)) {
@@ -799,6 +834,18 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
     }
 
     match_set_in_port(flow_metadata, flow->in_port.ofp_port);
+    if (flow->conn_state != 0) {
+        match_set_conn_state(flow_metadata, flow->conn_state);
+    }
+    if (flow->conn_zone != htons(0)) {
+        match_set_conn_zone(flow_metadata, flow->conn_zone);
+    }
+    if (flow->conn_zone != htonl(0)) {
+        match_set_conn_mark(flow_metadata, flow->conn_mark);
+    }
+    if (!is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
+        match_set_conn_label(flow_metadata, flow->conn_label);
+    }
 }
 
 char *
@@ -903,6 +950,18 @@ flow_format(struct ds *ds, const struct flow *flow)
     if (!flow->dp_hash) {
         WC_UNMASK_FIELD(wc, dp_hash);
     }
+    if (!flow->conn_state) {
+        WC_UNMASK_FIELD(wc, conn_state);
+    }
+    if (!flow->conn_zone) {
+        WC_UNMASK_FIELD(wc, conn_zone);
+    }
+    if (!flow->conn_mark) {
+        WC_UNMASK_FIELD(wc, conn_mark);
+    }
+    if (is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
+        WC_UNMASK_FIELD(wc, conn_label);
+    }
     for (int i = 0; i < FLOW_N_REGS; i++) {
         if (!flow->regs[i]) {
             WC_UNMASK_FIELD(wc, regs[i]);
@@ -942,7 +1001,7 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
     memset(&wc->masks, 0x0, sizeof wc->masks);
 
     /* Update this function whenever struct flow changes. */
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
 
     if (flow->tunnel.ip_dst) {
         if (flow->tunnel.flags & FLOW_TNL_F_KEY) {
@@ -965,6 +1024,10 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
 
     WC_MASK_FIELD(wc, skb_priority);
     WC_MASK_FIELD(wc, pkt_mark);
+    WC_MASK_FIELD(wc, conn_state);
+    WC_MASK_FIELD(wc, conn_zone);
+    WC_MASK_FIELD(wc, conn_mark);
+    WC_MASK_FIELD(wc, conn_label);
     WC_MASK_FIELD(wc, recirc_id);
     WC_MASK_FIELD(wc, dp_hash);
     WC_MASK_FIELD(wc, in_port);
@@ -1041,14 +1104,16 @@ uint64_t
 flow_wc_map(const struct flow *flow)
 {
     /* Update this function whenever struct flow changes. */
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
 
     uint64_t map = (flow->tunnel.ip_dst) ? MINIFLOW_MAP(tunnel) : 0;
 
     /* Metadata fields that can appear on packet input. */
     map |= MINIFLOW_MAP(skb_priority) | MINIFLOW_MAP(pkt_mark)
         | MINIFLOW_MAP(recirc_id) | MINIFLOW_MAP(dp_hash)
-        | MINIFLOW_MAP(in_port)
+        | MINIFLOW_MAP(in_port) | MINIFLOW_MAP(conn_mark)
+        | MINIFLOW_MAP(conn_zone) | MINIFLOW_MAP(conn_state)
+        | MINIFLOW_MAP(conn_label)
         | MINIFLOW_MAP(dl_dst) | MINIFLOW_MAP(dl_src)
         | MINIFLOW_MAP(dl_type) | MINIFLOW_MAP(vlan_tci);
 
@@ -1093,7 +1158,7 @@ void
 flow_wildcards_clear_non_packet_fields(struct flow_wildcards *wc)
 {
     /* Update this function whenever struct flow changes. */
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
 
     memset(&wc->masks.metadata, 0, sizeof wc->masks.metadata);
     memset(&wc->masks.regs, 0, sizeof wc->masks.regs);
@@ -1648,7 +1713,7 @@ flow_push_mpls(struct flow *flow, int n, ovs_be16 mpls_eth_type,
         flow->mpls_lse[0] = set_mpls_lse_values(ttl, tc, 1, htonl(label));
 
         /* Clear all L3 and L4 fields and dp_hash. */
-        BUILD_ASSERT(FLOW_WC_SEQ == 31);
+        BUILD_ASSERT(FLOW_WC_SEQ == 32);
         memset((char *) flow + FLOW_SEGMENT_2_ENDS_AT, 0,
                sizeof(struct flow) - FLOW_SEGMENT_2_ENDS_AT);
         flow->dp_hash = 0;

@@ -91,7 +91,7 @@ struct rule;
 /* Metadata for restoring pipeline context after recirculation.  Helpers
  * are inlined below to keep them together with the definition for easier
  * updates. */
-BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
 
 struct recirc_metadata {
     /* Metadata in struct flow. */
@@ -138,6 +138,9 @@ struct recirc_id_node {
     /* Initial table for post-recirculation processing. */
     uint8_t table_id;
 
+    /* True if conntracking occurred prior to recirculation. */
+    bool conntrack;
+
     /* Pipeline context for post-recirculation processing. */
     struct ofproto_dpif *ofproto; /* Post-recirculation bridge. */
     struct recirc_metadata metadata; /* Flow metadata. */
@@ -157,13 +160,13 @@ void recirc_init(void);
 uint32_t recirc_alloc_id(struct ofproto_dpif *);
 
 uint32_t recirc_alloc_id_ctx(struct ofproto_dpif *, uint8_t table_id,
-                             struct recirc_metadata *, struct ofpbuf *stack,
-                             uint32_t action_set_len, uint32_t ofpacts_len,
-                             const struct ofpact *);
+                             bool conntrack, struct recirc_metadata *,
+                             struct ofpbuf *stack, uint32_t action_set_len,
+                             uint32_t ofpacts_len, const struct ofpact *);
 uint32_t recirc_find_id(struct ofproto_dpif *, uint8_t table_id,
-                        struct recirc_metadata *, struct ofpbuf *stack,
-                        uint32_t action_set_len, uint32_t ofpacts_len,
-                        const struct ofpact *);
+                        bool conntrack, struct recirc_metadata *,
+                        struct ofpbuf *stack, uint32_t action_set_len,
+                        uint32_t ofpacts_len, const struct ofpact *);
 void recirc_free_id(uint32_t recirc_id);
 void recirc_free_ofproto(struct ofproto_dpif *, const char *ofproto_name);
 

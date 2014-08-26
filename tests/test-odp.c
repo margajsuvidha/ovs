@@ -56,7 +56,14 @@ parse_keys(bool wc_keys)
         if (!wc_keys) {
             struct odp_flow_key_parms odp_parms = {
                 .flow = &flow,
-                .recirc = true,
+                .support = {
+                    .max_mpls_depth = SIZE_MAX,
+                    .recirc = true,
+                    .conn_state = true,
+                    .conn_zone = true,
+                    .conn_mark = true,
+                    .conn_label = true,
+                },
             };
 
             /* Convert odp_key to flow. */

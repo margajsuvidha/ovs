@@ -87,6 +87,15 @@ static struct shash dp_netdevs OVS_GUARDED_BY(dp_netdev_mutex)
 
 static struct vlog_rate_limit upcall_rl = VLOG_RATE_LIMIT_INIT(600, 600);
 
+static struct odp_support dp_netdev_support = {
+    .variable_length_userdata = true,
+    .max_mpls_depth = SIZE_MAX,
+    .masked_set_action = true,
+    .recirc = true,
+    .tnl_push_pop = true,
+    .ufid = true
+};
+
 /* Stores a miniflow with inline values */
 
 struct netdev_flow_key {
@@ -1825,8 +1834,7 @@ dp_netdev_flow_to_dpif_flow(const struct dp_netdev_flow *netdev_flow,
         struct odp_flow_key_parms odp_parms = {
             .flow = &netdev_flow->flow,
             .mask = &wc.masks,
-            .recirc = true,
-            .max_mpls_depth = SIZE_MAX,
+            .support = dp_netdev_support,
         };
 
         miniflow_expand(&netdev_flow->cr.mask->mf, &wc.masks);
@@ -1943,6 +1951,12 @@ dpif_netdev_flow_from_nlattrs(const struct nlattr *key, uint32_t key_len,
 
     in_port = flow->in_port.odp_port;
     if (!is_valid_port_number(in_port) && in_port != ODPP_NONE) {
+        return EINVAL;
+    }
+
+    /* Userspace datapath doesn't support conntrack. */
+    if (flow->conn_state || flow->conn_zone || flow->conn_mark
+        || !is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
         return EINVAL;
     }
 
@@ -3024,7 +3038,7 @@ dp_netdev_upcall(struct dp_netdev_pmd_thread *pmd, struct dp_packet *packet_,
             .flow = flow,
             .mask = &wc->masks,
             .odp_in_port = flow->in_port.odp_port,
-            .recirc = true,
+            .support = dp_netdev_support,
         };
 
         ofpbuf_init(&key, 0);
@@ -3540,12 +3554,27 @@ dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
         VLOG_WARN("Packet dropped. Max recirculation depth exceeded.");
         break;
 
+    case OVS_ACTION_ATTR_CT:
+        /* If a flow with this action is slow-pathed, datapath assistance is
+         * required to implement it. However, we don't support this action
+         * in the userspace datapath. */
+        VLOG_WARN("Cannot execute conntrack action in userspace.");
+        break;
+
+    case OVS_ACTION_ATTR_SET:
+    case OVS_ACTION_ATTR_SET_MASKED: {
+        const struct nlattr *set = nl_attr_get(a);
+        enum ovs_key_attr set_type = nl_attr_type(set);
+
+        VLOG_WARN("Cannot execute set_field (type=%d) action in userspace.",
+                  set_type);
+        break;
+    }
+
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
     case OVS_ACTION_ATTR_PUSH_MPLS:
     case OVS_ACTION_ATTR_POP_MPLS:
-    case OVS_ACTION_ATTR_SET:
-    case OVS_ACTION_ATTR_SET_MASKED:
     case OVS_ACTION_ATTR_SAMPLE:
     case OVS_ACTION_ATTR_HASH:
     case OVS_ACTION_ATTR_UNSPEC:
