@@ -692,6 +692,80 @@ enum OVS_PACKED_ENUM mf_field_id {
      */
     MFF_PKT_MARK,
 
+    /* "conn_state".
+     *
+     * Connection tracking state.  The field is populated by the
+     * NXAST_CT action.  The following flags are defined:
+     *
+     *   - CONN_STATE_TRACKED (0x80): Connection tracking has occurred.
+     *   - CONN_STATE_REPLY (0x40): This flow did not initiate the connection.
+     *
+     * The following values describe the state of the connection:
+     *
+     *   - New (0x01): This is the beginning of a new connection.
+     *   - Established (0x02): This is part of an already existing connection.
+     *   - Related (0x04): This is a new connection that is related to an
+     *                     existing connection.
+     *
+     * Type: u8.
+     * Maskable: bitwise.
+     * Formatting: conn state.
+     * Prerequisites: none.
+     * Access: read-only.
+     * NXM: NXM_NX_CONN_STATE(104) since v2.5.
+     * OXM: none.
+     */
+    MFF_CONN_STATE,
+
+    /* "conn_zone".
+     *
+     * Connection tracking zone.  The field is populated by the
+     * NXAST_CT action.
+     *
+     * Type: be16.
+     * Maskable: no.
+     * Formatting: hexadecimal.
+     * Prerequisites: none.
+     * Access: read-only.
+     * NXM: NXM_NX_CONN_ZONE(105) since v2.5.
+     * OXM: none.
+     */
+    MFF_CONN_ZONE,
+
+    /* "conn_mark".
+     *
+     * Connection tracking mark.  The mark is carried with the
+     * connection tracking state.  On Linux this corresponds to the
+     * nf_conn's "mark" member but the exact implementation is
+     * platform-dependent.
+     *
+     * Type: be32.
+     * Maskable: bitwise.
+     * Formatting: hexadecimal.
+     * Prerequisites: none.
+     * Access: read/write.
+     * NXM: NXM_NX_CONN_MARK(106) since v2.5.
+     * OXM: none.
+     */
+    MFF_CONN_MARK,
+
+    /* "conn_label".
+     *
+     * Connection tracking label.  The label is carried with the
+     * connection tracking state.  On Linux this is held in the
+     * conntrack label extension but the exact implementation is
+     * platform-dependent.
+     *
+     * Type: u128.
+     * Maskable: bitwise.
+     * Formatting: conn label.
+     * Prerequisites: none.
+     * Access: read/write.
+     * NXM: NXM_NX_CONN_LABEL(107) since v2.5.
+     * OXM: none.
+     */
+    MFF_CONN_LABEL,
+
 #if FLOW_N_REGS == 8
     /* "reg<N>".
      *
@@ -1668,6 +1742,8 @@ enum OVS_PACKED_ENUM mf_string {
     MFS_HEXADECIMAL,
 
     /* Other formats. */
+    MFS_CONN_STATE,             /* Conn* state */
+    MFS_CONN_LABEL,             /* Conn* label */
     MFS_ETHERNET,
     MFS_IPV4,
     MFS_IPV6,
@@ -1735,6 +1811,7 @@ union mf_value {
     ovs_be32 be32;
     ovs_be16 be16;
     uint8_t u8;
+    ovs_u128 u128;
 };
 BUILD_ASSERT_DECL(sizeof(union mf_value) == 128);
 BUILD_ASSERT_DECL(sizeof(union mf_value) >= GENEVE_MAX_OPT_SIZE);

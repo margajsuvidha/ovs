@@ -283,6 +283,61 @@ match_set_pkt_mark_masked(struct match *match, uint32_t pkt_mark, uint32_t mask)
 }
 
 void
+match_set_conn_state(struct match *match, uint8_t conn_state)
+{
+    match_set_conn_state_masked(match, conn_state, UINT8_MAX);
+}
+
+void
+match_set_conn_state_masked(struct match *match, uint8_t conn_state,
+                            uint8_t mask)
+{
+    match->flow.conn_state = conn_state & mask;
+    match->wc.masks.conn_state = mask;
+}
+
+void
+match_set_conn_zone(struct match *match, uint16_t conn_zone)
+{
+    match->flow.conn_zone = conn_zone;
+    match->wc.masks.conn_zone = UINT16_MAX;
+}
+
+void
+match_set_conn_mark(struct match *match, uint32_t conn_mark)
+{
+    match_set_conn_mark_masked(match, conn_mark, UINT32_MAX);
+}
+
+void
+match_set_conn_mark_masked(struct match *match, uint32_t conn_mark,
+                           uint32_t mask)
+{
+    match->flow.conn_mark = conn_mark & mask;
+    match->wc.masks.conn_mark = mask;
+}
+
+void
+match_set_conn_label(struct match *match, ovs_u128 conn_label)
+{
+    ovs_u128 mask;
+
+    mask.u64.lo = UINT64_MAX;
+    mask.u64.hi = UINT64_MAX;
+    match_set_conn_label_masked(match, conn_label, mask);
+}
+
+void
+match_set_conn_label_masked(struct match *match, ovs_u128 value,
+                            ovs_u128 mask)
+{
+    match->flow.conn_label.u64.lo = value.u64.lo & mask.u64.lo;
+    match->flow.conn_label.u64.hi = value.u64.hi & mask.u64.hi;
+    match->wc.masks.conn_label.u64.lo = mask.u64.lo;
+    match->wc.masks.conn_label.u64.hi = mask.u64.hi;
+}
+
+void
 match_set_dl_type(struct match *match, ovs_be16 dl_type)
 {
     match->wc.masks.dl_type = OVS_BE16_MAX;
@@ -816,6 +871,21 @@ format_ipv6_netmask(struct ds *s, const char *name,
 }
 
 static void
+format_uint16_masked(struct ds *s, const char *name,
+                   uint16_t value, uint16_t mask)
+{
+    if (mask != 0) {
+        ds_put_format(s, "%s=", name);
+        if (mask == UINT16_MAX) {
+            ds_put_format(s, "%"PRIu16, value);
+        } else {
+            ds_put_format(s, "0x%"PRIx16"/0x%"PRIx16, value, mask);
+        }
+        ds_put_char(s, ',');
+    }
+}
+
+static void
 format_be16_masked(struct ds *s, const char *name,
                    ovs_be16 value, ovs_be16 mask)
 {
@@ -905,6 +975,21 @@ format_flow_tunnel(struct ds *s, const struct match *match)
     tun_metadata_match_format(s, match);
 }
 
+static void
+format_conn_label_masked(struct ds *s, const ovs_u128 *key,
+                         const ovs_u128 *mask)
+{
+    if (!is_all_zeros(mask, sizeof(*mask))) {
+        ds_put_format(s, "conn_label=");
+        ds_put_hex(s, key, sizeof(*key));
+        if (!is_all_ones(mask, sizeof(*mask))) {
+            ds_put_char(s, '/');
+            ds_put_hex(s, mask, sizeof(*mask));
+        }
+        ds_put_char(s, ',');
+    }
+}
+
 /* Appends a string representation of 'match' to 's'.  If 'priority' is
  * different from OFP_DEFAULT_PRIORITY, includes it in 's'. */
 void
@@ -948,6 +1033,34 @@ match_format(const struct match *match, struct ds *s, int priority)
         ds_put_cstr(s, "actset_output=");
         ofputil_format_port(f->actset_output, s);
         ds_put_char(s, ',');
+    }
+
+    if (wc->masks.conn_state) {
+        if (wc->masks.conn_state == UINT8_MAX) {
+            ds_put_cstr(s, "conn_state=");
+            if (f->conn_state) {
+                format_flags(s, packet_conn_state_to_string, f->conn_state,
+                             '|');
+            } else {
+                ds_put_cstr(s, "0"); /* No state. */
+            }
+        } else {
+            format_flags_masked(s, "conn_state", packet_conn_state_to_string,
+                                f->conn_state, wc->masks.conn_state);
+        }
+        ds_put_char(s, ',');
+    }
+
+    if (wc->masks.conn_zone) {
+        format_uint16_masked(s, "conn_zone", f->conn_zone, wc->masks.conn_zone);
+    }
+
+    if (wc->masks.conn_mark) {
+        format_uint32_masked(s, "conn_mark", f->conn_mark, wc->masks.conn_mark);
+    }
+
+    if (!is_all_zeros(&wc->masks.conn_label, sizeof(wc->masks.conn_label))) {
+        format_conn_label_masked(s, &f->conn_label, &wc->masks.conn_label);
     }
 
     if (wc->masks.dl_type) {
