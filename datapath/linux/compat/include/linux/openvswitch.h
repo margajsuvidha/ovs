@@ -349,7 +349,6 @@ enum ovs_key_attr {
 	OVS_KEY_ATTR_CONN_LABEL,/* 16-octet connection tracking label */
 
 #ifdef __KERNEL__
-	/* Only used within kernel data path. */
 	OVS_KEY_ATTR_TUNNEL_INFO,  /* struct ovs_tunnel_info */
 #endif
 	__OVS_KEY_ATTR_MAX
