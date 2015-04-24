@@ -474,3 +474,48 @@ TIME_WAIT src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> src=10.1.1.1
 
 OVS_KMOD_VSWITCHD_STOP
 AT_CLEANUP
+
+AT_SETUP([conntrack - multiple bridges])
+AT_SKIP_IF([test $HAVE_PYTHON = no])
+OVS_KMOD_VSWITCHD_START(
+   [set-fail-mode br0 standalone --\
+    add-br br1 --\
+    add-port br0 patch+ -- set int patch+ type=patch options:peer=patch- --\
+    add-port br1 patch- -- set int patch- type=patch options:peer=patch+ --])
+
+ADD_NAMESPACES(at_ns0, at_ns1)
+
+ADD_VETH(p0, at_ns0, br0, "10.1.1.1/24")
+ADD_VETH(p1, at_ns1, br1, "10.1.1.2/24")
+
+dnl Allow any traffic from ns0->ns1, allow established in reverse.
+AT_DATA([flows-br0.txt], [dnl
+priority=1,action=drop
+priority=10,arp,action=normal
+priority=10,icmp,action=normal
+in_port=2,tcp,conn_state=-trk,action=ct(commit,zone=1),1
+in_port=1,tcp,conn_state=-trk,action=ct(recirc,zone=1)
+in_port=1,tcp,conn_state=+trk+est,conn_zone=1,action=2
+])
+
+dnl Allow any traffic from ns0->ns1, allow established in reverse.
+AT_DATA([flows-br1.txt], [dnl
+priority=1,action=drop
+priority=10,arp,action=normal
+priority=10,icmp,action=normal
+in_port=1,tcp,conn_state=-trk,action=ct(recirc,zone=2)
+in_port=1,tcp,conn_state=+trk+new,conn_zone=2,action=ct(commit,zone=2),2
+in_port=1,tcp,conn_state=+trk+est,conn_zone=2,action=2
+in_port=2,tcp,conn_state=-trk,action=ct(recirc,zone=2)
+in_port=2,tcp,conn_state=+trk+est,conn_zone=2,action=ct(commit,zone=2),1
+])
+
+AT_CHECK([ovs-ofctl add-flows br0 flows-br0.txt])
+AT_CHECK([ovs-ofctl add-flows br1 flows-br1.txt])
+
+dnl HTTP requests from p0->p1 should work fine.
+NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
+AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
+
+OVS_KMOD_VSWITCHD_STOP
+AT_CLEANUP
