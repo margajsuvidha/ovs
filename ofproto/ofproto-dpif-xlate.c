@@ -283,6 +283,11 @@ struct xlate_ctx {
      * the MPLS label stack that was originally present. */
     bool was_mpls;
 
+    /* True if conntrack has been performed on this packet during processing
+     * on the current bridge. This is used to determine whether conntrack
+     * state from the datapath should be honored after recirculation. */
+    bool conntracked;
+
     /* OpenFlow 1.1+ action set.
      *
      * 'action_set' accumulates "struct ofpact"s added by OFPACT_WRITE_ACTIONS.
@@ -2714,6 +2719,15 @@ build_tunnel_send(const struct xlate_ctx *ctx, const struct xport *xport,
 }
 
 static void
+clear_conntrack(struct flow *flow)
+{
+    flow->conn_state = 0;
+    flow->conn_zone = 0;
+    flow->conn_mark = 0;
+    memset(&flow->conn_label, 0, sizeof flow->conn_label);
+}
+
+static void
 compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                         const struct xlate_bond_recirc *xr, bool check_stp)
 {
@@ -2777,6 +2791,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         const struct xport *peer = xport->peer;
         struct flow old_flow = ctx->xin->flow;
         bool old_was_mpls = ctx->was_mpls;
+        bool old_conntracked = ctx->conntracked;
         enum slow_path_reason special;
         struct ofpbuf old_stack = ctx->stack;
         union mf_subvalue new_stack[1024 / sizeof(union mf_subvalue)];
@@ -2791,6 +2806,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         memset(&flow->tunnel, 0, sizeof flow->tunnel);
         memset(flow->regs, 0, sizeof flow->regs);
         flow->actset_output = OFPP_UNSET;
+
+        /* Drop conntrack metadata when traversing a peer. */
+        clear_conntrack(flow);
+        ctx->conntracked = false;
 
         special = process_special(ctx, &ctx->xin->flow, peer,
                                   ctx->xin->packet);
@@ -2841,6 +2860,8 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         /* The peer bridge popping MPLS should have no effect on the original
          * bridge. */
         ctx->was_mpls = old_was_mpls;
+
+        ctx->conntracked = old_conntracked;
 
         /* The fact that the peer bridge exits (for any reason) does not mean
          * that the original bridge should exit.  Specifically, if the peer
@@ -3483,8 +3504,9 @@ compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
         /* Allocate a unique recirc id for the given metadata state in the
          * flow.  The life-cycle of this recirc id is managed by associating it
          * with the udpif key ('ukey') created for each new datapath flow. */
-        id = recirc_alloc_id_ctx(ctx->xbridge->ofproto, 0, &md, stack,
-                                 action_offset, ofpacts_len, ofpacts);
+        id = recirc_alloc_id_ctx(ctx->xbridge->ofproto, 0, ctx->conntracked,
+                                 &md, stack, action_offset, ofpacts_len,
+                                 ofpacts);
         if (!id) {
             static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
             VLOG_ERR_RL(&rl, "Failed to allocate recirculation id");
@@ -3495,8 +3517,8 @@ compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
         /* Look up an existing recirc id for the given metadata state in the
          * flow.  No new reference is taken, as the ID is RCU protected and is
          * only required temporarily for verification. */
-        id = recirc_find_id(ctx->xbridge->ofproto, 0, &md, stack,
-                            action_offset, ofpacts_len, ofpacts);
+        id = recirc_find_id(ctx->xbridge->ofproto, 0, ctx->conntracked, &md,
+                            stack, action_offset, ofpacts_len, ofpacts);
         /* We let zero 'id' to be used in the RECIRC action below, which will
          * fail all revalidations as zero is not a valid recirculation ID. */
     }
@@ -3983,14 +4005,16 @@ recirc_put_unroll_xlate(struct xlate_ctx *ctx)
 
     /* Restore the table_id and rule cookie for a potential PACKET
      * IN if needed. */
-    if (!unroll ||
-        (ctx->table_id != unroll->rule_table_id
-         || ctx->rule_cookie != unroll->rule_cookie)) {
+    if (!unroll
+        || ctx->table_id != unroll->rule_table_id
+        || ctx->rule_cookie != unroll->rule_cookie
+        || ctx->conntracked) {
 
         ctx->last_unroll_offset = ctx->action_set.size;
         unroll = ofpact_put_UNROLL_XLATE(&ctx->action_set);
         unroll->rule_table_id = ctx->table_id;
         unroll->rule_cookie = ctx->rule_cookie;
+        unroll->conntracked = ctx->conntracked;
     }
 }
 
@@ -4112,6 +4136,9 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
     nl_msg_put_u16(odp_actions, OVS_CT_ATTR_ZONE, ofc->zone);
     put_connhelper(odp_actions, ofc);
     nl_msg_end_nested(odp_actions, ct_offset);
+
+    /* Use conn_* fields from datapath during recirculation upcall. */
+    ctx->conntracked = true;
 
     if (ofc->flags & NX_CT_F_RECIRC) {
         compose_recirculate_action__(ctx, NULL, 0, 0, NULL);
@@ -4436,6 +4463,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             /* Restore translation context data that was stored earlier. */
             ctx->table_id = unroll->rule_table_id;
             ctx->rule_cookie = unroll->rule_cookie;
+            ctx->conntracked = unroll->conntracked;
             break;
         }
         case OFPACT_FIN_TIMEOUT:
@@ -4847,6 +4875,10 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         /* Set the post-recirculation table id.  Note: A table lookup is done
          * only if there are no post-recirculation actions. */
         ctx.table_id = recirc->table_id;
+
+        if (!recirc->conntrack) {
+            clear_conntrack(flow);
+        }
 
         /* Restore pipeline metadata. May change flow's in_port and other
          * metadata to the values that existed when recirculation was

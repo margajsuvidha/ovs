@@ -748,6 +748,11 @@ struct ofpact_unroll_xlate {
     /* Metadata in xlate context, visible to controller via PACKET_INs. */
     uint8_t  rule_table_id;       /* 0xFF if none. */
     ovs_be64 rule_cookie;         /* OVS_BE64_MAX if none. */
+
+    /* Whether conntrack was executed prior to recirculation. If so, related
+     * fields may be made available post-recirculation, until peer traversal
+     * or subsequent conntrack execution. */
+    bool conntracked;
 };
 
 /* Converting OpenFlow to ofpacts. */
