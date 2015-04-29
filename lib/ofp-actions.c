@@ -15,6 +15,8 @@
  */
 
 #include <config.h>
+#include <netinet/in.h>
+
 #include "ofp-actions.h"
 #include "bundle.h"
 #include "byte-order.h"
@@ -4405,7 +4407,8 @@ struct nx_action_conntrack {
     ovs_be16 flags;             /* Zero or more NX_CT_F_* flags.
                                  * Unspecified flag bits must be zero. */
     ovs_be16 zone;              /* Connection tracking context. */
-    uint8_t  pad[2];
+    ovs_be16 alg;               /* Well-known port number for the protocol.
+                                 * 0 indicates no ALG is required. */
 };
 OFP_ASSERT(sizeof(struct nx_action_conntrack) == 16);
 
@@ -4417,6 +4420,7 @@ decode_NXAST_RAW_CT(const struct nx_action_conntrack *nac, struct ofpbuf *out)
     conntrack = ofpact_put_CT(out);
     conntrack->flags = ntohs(nac->flags);
     conntrack->zone = ntohs(nac->zone);
+    conntrack->alg = ntohs(nac->alg);
 
     return 0;
 }
@@ -4430,6 +4434,7 @@ encode_CT(const struct ofpact_conntrack *conntrack,
     nac = put_NXAST_CT(out);
     nac->flags = htons(conntrack->flags);
     nac->zone = htons(conntrack->zone);
+    nac->alg = htons(conntrack->alg);
 }
 
 /* Parses 'arg' as the argument to a "ct" action, and appends such an
@@ -4454,6 +4459,8 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
             oc->flags |= NX_CT_F_RECIRC;
         } else if (!strcmp(key, "zone")) {
             error = str_to_u16(value, "zone", &oc->zone);
+        } else if (!strcmp(key, "alg")) {
+            error = str_to_connhelper(value, &oc->alg);
         } else {
             error = xasprintf("invalid key \"%s\" in \"ct\" argument",
                               key);
@@ -4466,12 +4473,23 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
 }
 
 static void
+format_alg(int port, struct ds *s)
+{
+    if (port == IPPORT_FTP) {
+        ds_put_format(s, "alg=ftp,");
+    } else if (port) {
+        ds_put_format(s, "alg=%d,", port);
+    }
+}
+
+static void
 format_CT(const struct ofpact_conntrack *a, struct ds *s)
 {
-    ds_put_format(s, "ct(%s%szone=%"PRIu16")",
+    ds_put_format(s, "ct(%s%s",
                   a->flags & NX_CT_F_COMMIT ? "commit," : "",
-                  a->flags & NX_CT_F_RECIRC ? "recirc," : "",
-                  a->zone);
+                  a->flags & NX_CT_F_RECIRC ? "recirc," : "");
+    format_alg(a->alg, s);
+    ds_put_format(s, "zone=%"PRIu16")", a->zone);
 }
 
 /* Meter instruction. */

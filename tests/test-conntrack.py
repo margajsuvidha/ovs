@@ -24,16 +24,37 @@ class TCPServerV6(HTTPServer):
     address_family = socket.AF_INET6
 
 
+def get_ftpd():
+    try:
+        from pyftpdlib.authorizers import DummyAuthorizer
+        from pyftpdlib.handlers import FTPHandler
+        from pyftpdlib.servers import FTPServer
+
+        class OVSFTPHandler(FTPHandler):
+            authorizer = DummyAuthorizer()
+            authorizer.add_anonymous("/tmp")
+        server = [FTPServer, OVSFTPHandler, 21]
+    except ImportError:
+        server = None
+        pass
+    return server
+
+
 def main():
     SERVERS = {
         'http':  [TCPServer,   SimpleHTTPRequestHandler, 80],
         'http6': [TCPServerV6, SimpleHTTPRequestHandler, 80],
     }
 
+    ftpd = get_ftpd()
+    if ftpd is not None:
+        SERVERS['ftp'] = ftpd
+
+    protocols = [srv[0] for srv in SERVERS]
     parser = argparse.ArgumentParser(
             description='Run basic application servers.')
     parser.add_argument('proto', default='http', nargs='?',
-            help='protocol to serve (http, http6)')
+            help='protocol to serve (%s)' % protocols)
     args = parser.parse_args()
 
     if args.proto not in SERVERS:
