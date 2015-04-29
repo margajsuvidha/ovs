@@ -2736,7 +2736,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     struct flow *flow = &ctx->xin->flow;
     struct flow_tnl flow_tnl;
     ovs_be16 flow_vlan_tci;
-    uint32_t flow_pkt_mark;
+    uint32_t flow_pkt_mark, flow_conn_mark;
     uint8_t flow_conn_state;
     uint16_t flow_conn_zone;
     uint8_t flow_nw_tos;
@@ -2892,6 +2892,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     flow_conn_state = flow->conn_state;
     flow_conn_zone = flow->conn_zone;
     flow_nw_tos = flow->nw_tos;
+    flow_conn_mark = flow->conn_mark;
 
     if (count_skb_priorities(xport)) {
         memset(&wc->masks.skb_priority, 0xff, sizeof wc->masks.skb_priority);
@@ -3012,6 +3013,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     flow->pkt_mark = flow_pkt_mark;
     flow->conn_state = flow_conn_state;
     flow->conn_zone = flow_conn_zone;
+    flow->conn_mark = flow_conn_mark;
     flow->nw_tos = flow_nw_tos;
 }
 
