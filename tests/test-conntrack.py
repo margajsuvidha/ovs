@@ -19,26 +19,36 @@ from BaseHTTPServer import HTTPServer
 from SimpleHTTPServer import SimpleHTTPRequestHandler
 from SocketServer import TCPServer
 
-from pyftpdlib.authorizers import DummyAuthorizer
-from pyftpdlib.handlers import FTPHandler
-from pyftpdlib.servers import FTPServer
-
-
-class OVSFTPHandler(FTPHandler):
-    authorizer = DummyAuthorizer()
-    authorizer.add_anonymous("/tmp")
-
 
 class TCPServerV6(HTTPServer):
     address_family = socket.AF_INET6
 
 
+def get_ftpd():
+    try:
+        from pyftpdlib.authorizers import DummyAuthorizer
+        from pyftpdlib.handlers import FTPHandler
+        from pyftpdlib.servers import FTPServer
+
+        class OVSFTPHandler(FTPHandler):
+            authorizer = DummyAuthorizer()
+            authorizer.add_anonymous("/tmp")
+        server = [FTPServer, OVSFTPHandler, 21]
+    except ImportError:
+        server = None
+        pass
+    return server
+
+
 def main():
     SERVERS = {
-        'ftp':   [FTPServer,   OVSFTPHandler,            21],
         'http':  [TCPServer,   SimpleHTTPRequestHandler, 80],
         'http6': [TCPServerV6, SimpleHTTPRequestHandler, 80],
     }
+
+    ftpd = get_ftpd()
+    if ftpd is not None:
+        SERVERS['ftp'] = ftpd
 
     parser = argparse.ArgumentParser(
             description='Run basic application servers.')

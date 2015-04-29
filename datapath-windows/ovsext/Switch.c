@@ -35,12 +35,18 @@
 #include "Debug.h"
 
 POVS_SWITCH_CONTEXT gOvsSwitchContext;
-BOOLEAN gOvsInAttach;
+LONG volatile gOvsInAttach;
 UINT64 ovsTimeIncrementPerTick;
 
-extern PNDIS_SPIN_LOCK gOvsCtrlLock;
 extern NDIS_HANDLE gOvsExtDriverHandle;
 extern NDIS_HANDLE gOvsExtDriverObject;
+extern PDEVICE_OBJECT gOvsDeviceObject;
+
+/*
+ * Reference count used to prevent premature deallocation of the global switch
+ * context structure, gOvsSwitchContext.
+ */
+volatile LONG      gOvsSwitchContextRefCount = 1;
 
 static NDIS_STATUS OvsCreateSwitch(NDIS_HANDLE ndisFilterHandle,
                                    POVS_SWITCH_CONTEXT *switchContextOut);
@@ -83,22 +89,18 @@ OvsExtAttach(NDIS_HANDLE ndisFilterHandle,
         goto cleanup;
     }
 
-    NdisAcquireSpinLock(gOvsCtrlLock);
     if (gOvsSwitchContext) {
-        NdisReleaseSpinLock(gOvsCtrlLock);
         OVS_LOG_TRACE("Exit: Failed to create OVS Switch, only one datapath is"
                       "supported, %p.", gOvsSwitchContext);
         goto cleanup;
     }
-    if (gOvsInAttach) {
-        NdisReleaseSpinLock(gOvsCtrlLock);
+
+    if (InterlockedCompareExchange(&gOvsInAttach, 1, 0)) {
         /* Just fail the request. */
         OVS_LOG_TRACE("Exit: Failed to create OVS Switch, since another attach"
                       "instance is in attach process.");
         goto cleanup;
     }
-    gOvsInAttach = TRUE;
-    NdisReleaseSpinLock(gOvsCtrlLock);
 
     status = OvsInitIpHelper(ndisFilterHandle);
     if (status != STATUS_SUCCESS) {
@@ -115,7 +117,7 @@ OvsExtAttach(NDIS_HANDLE ndisFilterHandle,
 
     /*
      * Register the switch context with NDIS so NDIS can pass it back to the
-     * Filterxxx callback functions as the 'FilterModuleContext' parameter.
+     * FilterXXX callback functions as the 'FilterModuleContext' parameter.
      */
     RtlZeroMemory(&ovsExtAttributes, sizeof(NDIS_FILTER_ATTRIBUTES));
     ovsExtAttributes.Header.Revision = NDIS_FILTER_ATTRIBUTES_REVISION_1;
@@ -168,8 +170,8 @@ OvsCreateSwitch(NDIS_HANDLE ndisFilterHandle,
 
     OVS_LOG_TRACE("Enter: Create switch object");
 
-    switchContext =
-        (POVS_SWITCH_CONTEXT) OvsAllocateMemory(sizeof(OVS_SWITCH_CONTEXT));
+    switchContext = (POVS_SWITCH_CONTEXT) OvsAllocateMemoryWithTag(
+        sizeof(OVS_SWITCH_CONTEXT), OVS_SWITCH_POOL_TAG);
     if (switchContext == NULL) {
         status = NDIS_STATUS_RESOURCES;
         goto create_switch_done;
@@ -187,7 +189,7 @@ OvsCreateSwitch(NDIS_HANDLE ndisFilterHandle,
     if (status != NDIS_STATUS_SUCCESS) {
         OVS_LOG_ERROR("OvsExtAttach: Extension is running in "
                       "non-switch environment.");
-        OvsFreeMemory(switchContext);
+        OvsFreeMemoryWithTag(switchContext, OVS_SWITCH_POOL_TAG);
         goto create_switch_done;
     }
 
@@ -198,16 +200,16 @@ OvsCreateSwitch(NDIS_HANDLE ndisFilterHandle,
 
     status = OvsInitSwitchContext(switchContext);
     if (status != NDIS_STATUS_SUCCESS) {
-        OvsFreeMemory(switchContext);
+        OvsFreeMemoryWithTag(switchContext, OVS_SWITCH_POOL_TAG);
         goto create_switch_done;
     }
 
-    status = OvsTunnelFilterInitialize(gOvsExtDriverObject);
+    status = OvsInitTunnelFilter(gOvsExtDriverObject, gOvsDeviceObject);
     if (status != NDIS_STATUS_SUCCESS) {
         OvsUninitSwitchContext(switchContext);
-        OvsFreeMemory(switchContext);
         goto create_switch_done;
     }
+
     *switchContextOut = switchContext;
 
 create_switch_done:
@@ -261,10 +263,9 @@ OvsDeleteSwitch(POVS_SWITCH_CONTEXT switchContext)
     if (switchContext)
     {
         dpNo = switchContext->dpNo;
-        OvsTunnelFilterUninitialize(gOvsExtDriverObject);
+        OvsUninitTunnelFilter(gOvsExtDriverObject);
         OvsClearAllSwitchVports(switchContext);
         OvsUninitSwitchContext(switchContext);
-        OvsFreeMemory(switchContext);
     }
     OVS_LOG_TRACE("Exit: deleted switch %p  dpNo: %d", switchContext, dpNo);
 }
@@ -358,14 +359,14 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
     switchContext->dispatchLock =
         NdisAllocateRWLock(switchContext->NdisFilterHandle);
 
-    switchContext->portNoHashArray = (PLIST_ENTRY)
-        OvsAllocateMemory(sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE);
-    switchContext->ovsPortNameHashArray = (PLIST_ENTRY)
-        OvsAllocateMemory(sizeof (LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE);
-    switchContext->portIdHashArray= (PLIST_ENTRY)
-        OvsAllocateMemory(sizeof (LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE);
-    switchContext->pidHashArray = (PLIST_ENTRY)
-        OvsAllocateMemory(sizeof(LIST_ENTRY) * OVS_MAX_PID_ARRAY_SIZE);
+    switchContext->portNoHashArray = (PLIST_ENTRY)OvsAllocateMemoryWithTag(
+        sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
+    switchContext->ovsPortNameHashArray = (PLIST_ENTRY)OvsAllocateMemoryWithTag(
+        sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
+    switchContext->portIdHashArray= (PLIST_ENTRY)OvsAllocateMemoryWithTag(
+        sizeof(LIST_ENTRY) * OVS_MAX_VPORT_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
+    switchContext->pidHashArray = (PLIST_ENTRY)OvsAllocateMemoryWithTag(
+        sizeof(LIST_ENTRY) * OVS_MAX_PID_ARRAY_SIZE, OVS_SWITCH_POOL_TAG);
     status = OvsAllocateFlowTable(&switchContext->datapath, switchContext);
 
     if (status == NDIS_STATUS_SUCCESS) {
@@ -381,17 +382,20 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
             NdisFreeRWLock(switchContext->dispatchLock);
         }
         if (switchContext->portNoHashArray) {
-            OvsFreeMemory(switchContext->portNoHashArray);
+            OvsFreeMemoryWithTag(switchContext->portNoHashArray,
+                                 OVS_SWITCH_POOL_TAG);
         }
         if (switchContext->ovsPortNameHashArray) {
-            OvsFreeMemory(switchContext->ovsPortNameHashArray);
+            OvsFreeMemoryWithTag(switchContext->ovsPortNameHashArray,
+                                 OVS_SWITCH_POOL_TAG);
         }
         if (switchContext->portIdHashArray) {
-            OvsFreeMemory(switchContext->portIdHashArray);
+            OvsFreeMemoryWithTag(switchContext->portIdHashArray,
+                                 OVS_SWITCH_POOL_TAG);
         }
-
         if (switchContext->pidHashArray) {
-            OvsFreeMemory(switchContext->pidHashArray);
+            OvsFreeMemoryWithTag(switchContext->pidHashArray,
+                                 OVS_SWITCH_POOL_TAG);
         }
 
         OvsDeleteFlowTable(&switchContext->datapath);
@@ -420,6 +424,7 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
     switchContext->isActivateFailed = FALSE;
     switchContext->dpNo = OVS_DP_NUMBER;
     ovsTimeIncrementPerTick = KeQueryTimeIncrement() / 10000;
+
     OVS_LOG_TRACE("Exit: Succesfully initialized switchContext: %p",
                   switchContext);
     return NDIS_STATUS_SUCCESS;
@@ -427,6 +432,17 @@ OvsInitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
 
 static VOID
 OvsUninitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
+{
+    OvsReleaseSwitchContext(switchContext);
+}
+
+/*
+ * --------------------------------------------------------------------------
+ *  Frees up the contents of and also the switch context.
+ * --------------------------------------------------------------------------
+ */
+static VOID
+OvsDeleteSwitchContext(POVS_SWITCH_CONTEXT switchContext)
 {
     OVS_LOG_TRACE("Enter: Delete switchContext:%p", switchContext);
 
@@ -437,17 +453,66 @@ OvsUninitSwitchContext(POVS_SWITCH_CONTEXT switchContext)
     NdisFreeRWLock(switchContext->dispatchLock);
     switchContext->dispatchLock = NULL;
     NdisFreeSpinLock(&(switchContext->pidHashLock));
-    OvsFreeMemory(switchContext->ovsPortNameHashArray);
+    OvsFreeMemoryWithTag(switchContext->ovsPortNameHashArray,
+                         OVS_SWITCH_POOL_TAG);
     switchContext->ovsPortNameHashArray = NULL;
-    OvsFreeMemory(switchContext->portIdHashArray);
+    OvsFreeMemoryWithTag(switchContext->portIdHashArray,
+                         OVS_SWITCH_POOL_TAG);
     switchContext->portIdHashArray = NULL;
-    OvsFreeMemory(switchContext->portNoHashArray);
+    OvsFreeMemoryWithTag(switchContext->portNoHashArray,
+                         OVS_SWITCH_POOL_TAG);
     switchContext->portNoHashArray = NULL;
-    OvsFreeMemory(switchContext->pidHashArray);
+    OvsFreeMemoryWithTag(switchContext->pidHashArray,
+                         OVS_SWITCH_POOL_TAG);
     switchContext->pidHashArray = NULL;
     OvsDeleteFlowTable(&switchContext->datapath);
     OvsCleanupBufferPool(switchContext);
+
+    OvsFreeMemoryWithTag(switchContext, OVS_SWITCH_POOL_TAG);
     OVS_LOG_TRACE("Exit: Delete switchContext: %p", switchContext);
+}
+
+VOID
+OvsReleaseSwitchContext(POVS_SWITCH_CONTEXT switchContext)
+{
+    LONG ref = 0;
+    LONG newRef = 0;
+    LONG icxRef = 0;
+
+    do {
+        ref = gOvsSwitchContextRefCount;
+        newRef = (0 == ref) ? 0 : ref - 1;
+        icxRef = InterlockedCompareExchange(&gOvsSwitchContextRefCount,
+                                            newRef,
+                                            ref);
+    } while (icxRef != ref);
+
+    if (ref == 1) {
+        OvsDeleteSwitchContext(switchContext);
+    }
+}
+
+BOOLEAN
+OvsAcquireSwitchContext(VOID)
+{
+    LONG ref = 0;
+    LONG newRef = 0;
+    LONG icxRef = 0;
+    BOOLEAN ret = FALSE;
+
+    do {
+        ref = gOvsSwitchContextRefCount;
+        newRef = (0 == ref) ? 0 : ref + 1;
+        icxRef = InterlockedCompareExchange(&gOvsSwitchContextRefCount,
+                                            newRef,
+                                            ref);
+    } while (icxRef != ref);
+
+    if (ref != 0) {
+        ret = TRUE;
+    }
+
+    return ret;
 }
 
 /*
@@ -519,7 +584,6 @@ OvsExtNetPnPEvent(NDIS_HANDLE filterModuleContext,
             switchContext->isActivateFailed = TRUE;
         } else {
             ASSERT(switchContext->isActivated == FALSE);
-            ASSERT(switchActive == TRUE);
             if (switchContext->isActivated == FALSE && switchActive == TRUE) {
                 status = OvsActivateSwitch(switchContext);
                 OVS_LOG_TRACE("OvsExtNetPnPEvent: activated switch: %p "

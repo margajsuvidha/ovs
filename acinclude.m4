@@ -1,6 +1,6 @@
 # -*- autoconf -*-
 
-# Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+# Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -292,16 +292,6 @@ AC_DEFUN([OVS_DEFINE], [
   echo '#define $1 1' >> datapath/linux/kcompat.h.new
 ])
 
-AC_DEFUN([OVS_CHECK_LOG2_H], [
-  AC_MSG_CHECKING([for $KSRC/include/linux/log2.h])
-  if test -e $KSRC/include/linux/log2.h; then
-    AC_MSG_RESULT([yes])
-    OVS_DEFINE([HAVE_LOG2_H])
-  else
-    AC_MSG_RESULT([no])
-  fi
-])
-
 dnl OVS_CHECK_LINUX_COMPAT
 dnl
 dnl Runs various Autoconf checks on the Linux 2.6 kernel source in
@@ -446,8 +436,6 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
   OVS_GREP_IFELSE([$KSRC/include/uapi/linux/netdevice.h], [NET_NAME_UNKNOWN],
                   [OVS_DEFINE([HAVE_NET_NAME_UNKNOWN])])
 
-  OVS_CHECK_LOG2_H
-
   if cmp -s datapath/linux/kcompat.h.new \
             datapath/linux/kcompat.h >/dev/null 2>&1; then
     rm datapath/linux/kcompat.h.new
@@ -498,7 +486,13 @@ AC_DEFUN([OVS_CHECK_STRTOK_R],
         [AC_LANG_PROGRAM([#include <stdio.h>
                           #include <string.h>
                          ],
-                         [[char string[] = ":::";
+                         [[#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 8
+                           /* Assume bug is present, because relatively minor
+                              changes in compiler settings (e.g. optimization
+                              level) can make it crop up. */
+                           return 1;
+                           #else
+                           char string[] = ":::";
                            char *save_ptr = (char *) 0xc0ffee;
                            char *token1, *token2;
                            token1 = strtok_r(string, ":", &save_ptr);
@@ -506,6 +500,7 @@ AC_DEFUN([OVS_CHECK_STRTOK_R],
                            freopen ("/dev/null", "w", stdout);
                            printf ("%s %s\n", token1, token2);
                            return 0;
+                           #endif
                           ]])],
         [ovs_cv_strtok_r_bug=no],
         [ovs_cv_strtok_r_bug=yes],
@@ -531,8 +526,16 @@ AC_DEFUN([_OVS_CHECK_CC_OPTION], [dnl
      dnl clang's GCC-compatible compiler driver does not return a failure
      dnl exit status even though it complains about options it does not
      dnl understand.
+     dnl
+     dnl Also, check stderr as gcc exits with status 0 for options
+     dnl rejected at getopt level.
+     dnl    % touch /tmp/a.c
+     dnl    % gcc -g -c -Werror -Qunused-arguments /tmp/a.c; echo $?
+     dnl    gcc: unrecognized option '-Qunused-arguments'
+     dnl    0
+     dnl    %
      CFLAGS="$CFLAGS $WERROR $1"
-     AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,)], [ovs_cv_name[]=yes], [ovs_cv_name[]=no])
+     AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,)], [if test -s conftest.err && grep "unrecognized option" conftest.err; then ovs_cv_name[]=no; else ovs_cv_name[]=yes; fi], [ovs_cv_name[]=no])
      CFLAGS="$ovs_save_CFLAGS"])
   if test $ovs_cv_name = yes; then
     m4_if([$2], [], [:], [$2])

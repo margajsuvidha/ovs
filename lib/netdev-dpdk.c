@@ -558,11 +558,11 @@ netdev_dpdk_init(struct netdev *netdev_, unsigned int port_no,
     netdev_->n_rxq = NR_QUEUE;
 
     if (type == DPDK_DEV_ETH) {
-	    netdev_dpdk_alloc_txq(netdev, NR_QUEUE);
-	    err = dpdk_eth_dev_init(netdev);
-	    if (err) {
-		    goto unlock;
-	    }
+        netdev_dpdk_alloc_txq(netdev, NR_QUEUE);
+        err = dpdk_eth_dev_init(netdev);
+        if (err) {
+            goto unlock;
+        }
     }
 
     list_push_back(&dpdk_list, &netdev->list_node);
@@ -906,10 +906,10 @@ __netdev_dpdk_vhost_send(struct netdev *netdev, struct dp_packet **pkts,
     int tx_pkts, i;
 
     if (OVS_UNLIKELY(!is_vhost_running(virtio_dev))) {
-	ovs_mutex_lock(&vhost_dev->mutex);
-	vhost_dev->stats.tx_dropped+= cnt;
-	ovs_mutex_unlock(&vhost_dev->mutex);
-	goto out;
+        ovs_mutex_lock(&vhost_dev->mutex);
+        vhost_dev->stats.tx_dropped+= cnt;
+        ovs_mutex_unlock(&vhost_dev->mutex);
+        goto out;
     }
 
     /* There is vHost TX single queue, So we need to lock it for TX. */
@@ -923,9 +923,9 @@ __netdev_dpdk_vhost_send(struct netdev *netdev, struct dp_packet **pkts,
 
 out:
     if (may_steal) {
-	for (i = 0; i < cnt; i++) {
-	    dp_packet_delete(pkts[i]);
-	}
+        for (i = 0; i < cnt; i++) {
+            dp_packet_delete(pkts[i]);
+        }
     }
 }
 
@@ -1064,6 +1064,7 @@ netdev_dpdk_send__(struct netdev_dpdk *dev, int qid,
 
         for (i = 0; i < cnt; i++) {
             int size = dp_packet_size(pkts[i]);
+
             if (OVS_UNLIKELY(size > dev->max_packet_len)) {
                 if (next_tx_idx != i) {
                     dpdk_queue_pkts(dev, qid,
@@ -1586,6 +1587,11 @@ destroy_device(volatile struct virtio_net *dev)
              * setting the virtio_dev to NULL.
              */
             ovsrcu_synchronize();
+            /*
+             * As call to ovsrcu_synchronize() will end the quiescent state,
+             * put thread back into quiescent state before returning.
+             */
+            ovsrcu_quiesce_start();
         }
     }
     ovs_mutex_unlock(&dpdk_mutex);
@@ -1614,6 +1620,8 @@ static void *
 start_cuse_session_loop(void *dummy OVS_UNUSED)
 {
      pthread_detach(pthread_self());
+     /* Put the cuse thread into quiescent state. */
+     ovsrcu_quiesce_start();
      rte_vhost_driver_session_start();
      return NULL;
 }
@@ -1621,7 +1629,6 @@ start_cuse_session_loop(void *dummy OVS_UNUSED)
 static int
 dpdk_vhost_class_init(void)
 {
-    pthread_t thread;
     int err = -1;
 
     rte_vhost_driver_callback_register(&virtio_net_device_ops);
@@ -1637,9 +1644,8 @@ dpdk_vhost_class_init(void)
         return -1;
     }
 
-    /* start_cuse_session_loop blocks OVS RCU quiescent state, so directly use
-     * pthread API. */
-    return pthread_create(&thread, NULL, start_cuse_session_loop, NULL);
+    ovs_thread_create("cuse_thread", start_cuse_session_loop, NULL);
+    return 0;
 }
 
 static void
@@ -1740,6 +1746,15 @@ netdev_dpdk_ring_send(struct netdev *netdev, int qid OVS_UNUSED,
                       struct dp_packet **pkts, int cnt, bool may_steal)
 {
     struct netdev_dpdk *dev = netdev_dpdk_cast(netdev);
+    unsigned i;
+
+    /* When using 'dpdkr' and sending to a DPDK ring, we want to ensure that the
+     * rss hash field is clear. This is because the same mbuf may be modified by
+     * the consumer of the ring and return into the datapath without recalculating
+     * the RSS hash. */
+    for (i = 0; i < cnt; i++) {
+        dp_packet_set_rss_hash(pkts[i], 0);
+    }
 
     /* DPDK Rings have a single TX queue, Therefore needs locking. */
     rte_spinlock_lock(&dev->txq_lock);

@@ -42,7 +42,6 @@
 #include <sys/sysctl.h>
 #if defined(__NetBSD__)
 #include <net/route.h>
-#include <netinet/in.h>
 #include <netinet/if_inarp.h>
 #endif
 
@@ -643,7 +642,7 @@ netdev_bsd_rxq_recv(struct netdev_rxq *rxq_, struct dp_packet **packets,
         dp_packet_delete(packet);
     } else {
         dp_packet_pad(packet);
-        dp_packet_set_dp_hash(packet, 0);
+        dp_packet_set_rss_hash(packet, 0);
         packets[0] = packet;
         *c = 1;
     }
@@ -844,7 +843,7 @@ netdev_bsd_get_mtu(const struct netdev *netdev_, int *mtup)
     }
     ovs_mutex_unlock(&netdev->mutex);
 
-    return 0;
+    return error;
 }
 
 static int
@@ -1785,7 +1784,7 @@ static int
 ifr_get_flags(const struct ifreq *ifr)
 {
 #ifdef HAVE_STRUCT_IFREQ_IFR_FLAGSHIGH
-    return (ifr->ifr_flagshigh << 16) | ifr->ifr_flags;
+    return (ifr->ifr_flagshigh << 16) | (ifr->ifr_flags & 0xffff);
 #else
     return ifr->ifr_flags;
 #endif
@@ -1794,9 +1793,11 @@ ifr_get_flags(const struct ifreq *ifr)
 static void
 ifr_set_flags(struct ifreq *ifr, int flags)
 {
-    ifr->ifr_flags = flags;
 #ifdef HAVE_STRUCT_IFREQ_IFR_FLAGSHIGH
+    ifr->ifr_flags = flags & 0xffff;
     ifr->ifr_flagshigh = flags >> 16;
+#else
+    ifr->ifr_flags = flags;
 #endif
 }
 

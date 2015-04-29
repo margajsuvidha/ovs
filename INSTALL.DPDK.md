@@ -95,7 +95,7 @@ Using the DPDK with ovs-vswitchd:
      1. insert uio.ko: `modprobe uio`
      2. insert igb_uio.ko: `insmod $DPDK_BUILD/kmod/igb_uio.ko`
      3. Bind network device to igb_uio:
-	    `$DPDK_DIR/tools/dpdk_nic_bind.py --bind=igb_uio eth1`
+         `$DPDK_DIR/tools/dpdk_nic_bind.py --bind=igb_uio eth1`
 
    * VFIO:
 
@@ -106,7 +106,7 @@ Using the DPDK with ovs-vswitchd:
      2. Set correct permissions on vfio device: `sudo /usr/bin/chmod a+x /dev/vfio`
         and: `sudo /usr/bin/chmod 0666 /dev/vfio/*`
      3. Bind network device to vfio-pci:
-	    `$DPDK_DIR/tools/dpdk_nic_bind.py --bind=vfio-pci eth1`
+        `$DPDK_DIR/tools/dpdk_nic_bind.py --bind=vfio-pci eth1`
 
 3. Mount the hugetable filsystem
 
@@ -249,6 +249,14 @@ Using the DPDK with ovs-vswitchd:
 
    Note, core 0 is always reserved from non-pmd threads and should never be set
    in the cpu mask.
+
+   To understand where most of the time is spent and whether the caches are
+   effective, these commands can be used:
+
+   ```
+   ovs-appctl dpif-netdev/pmd-stats-clear #To reset statistics
+   ovs-appctl dpif-netdev/pmd-stats-show
+   ```
 
 DPDK Rings :
 ------------
@@ -547,10 +555,16 @@ Restrictions:
   - DPDK-vHost support works with 1G huge pages.
 
   ivshmem:
-  - The shared memory is currently restricted to the use of a 1GB
-    huge pages.
-  - All huge pages are shared amongst the host, clients, virtual
-    machines etc.
+  - If you run Open vSwitch with smaller page sizes (e.g. 2MB), you may be
+    unable to share any rings or mempools with a virtual machine.
+    This is because the current implementation of ivshmem works by sharing
+    a single 1GB huge page from the host operating system to any guest
+    operating system through the Qemu ivshmem device. When using smaller
+    page sizes, multiple pages may be required to hold the ring descriptors
+    and buffer pools. The Qemu ivshmem device does not allow you to share
+    multiple file descriptors to the guest operating system. However, if you
+    want to share dpdkr rings with other processes on the host, you can do
+    this with smaller page sizes.
 
 Bug Reporting:
 --------------

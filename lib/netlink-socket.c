@@ -273,63 +273,27 @@ nl_sock_destroy(struct nl_sock *sock)
 
 #ifdef _WIN32
 /* Reads the pid for 'sock' generated in the kernel datapath. The function
- * follows a transaction semantic. Eventually this function should call into
- * nl_transact. */
+ * uses a separate IOCTL instead of a transaction semantic to avoid unnecessary
+ * message overhead. */
 static int
 get_sock_pid_from_kernel(struct nl_sock *sock)
 {
-    struct nl_transaction txn;
-    struct ofpbuf request;
-    uint64_t request_stub[128];
-    struct ofpbuf reply;
-    uint64_t reply_stub[128];
-    struct ovs_header *ovs_header;
-    struct nlmsghdr *nlmsg;
-    uint32_t seq;
-    int retval;
-    DWORD bytes;
-    int ovs_msg_size = sizeof (struct nlmsghdr) + sizeof (struct genlmsghdr) +
-                       sizeof (struct ovs_header);
+    uint32_t pid = 0;
+    int retval = 0;
+    DWORD bytes = 0;
 
-    ofpbuf_use_stub(&request, request_stub, sizeof request_stub);
-    txn.request = &request;
-    ofpbuf_use_stub(&reply, reply_stub, sizeof reply_stub);
-    txn.reply = &reply;
-
-    seq = nl_sock_allocate_seq(sock, 1);
-    nl_msg_put_genlmsghdr(&request, 0, OVS_WIN_NL_CTRL_FAMILY_ID, 0,
-                          OVS_CTRL_CMD_WIN_GET_PID, OVS_WIN_CONTROL_VERSION);
-    nlmsg = nl_msg_nlmsghdr(txn.request);
-    nlmsg->nlmsg_seq = seq;
-
-    ovs_header = ofpbuf_put_uninit(&request, sizeof *ovs_header);
-    ovs_header->dp_ifindex = 0;
-    ovs_header = ofpbuf_put_uninit(&reply, ovs_msg_size);
-
-    if (!DeviceIoControl(sock->handle, OVS_IOCTL_TRANSACT,
-                         txn.request->data, txn.request->size,
-                         txn.reply->data, txn.reply->size,
+    if (!DeviceIoControl(sock->handle, OVS_IOCTL_GET_PID,
+                         NULL, 0, &pid, sizeof(pid),
                          &bytes, NULL)) {
         retval = EINVAL;
-        goto done;
     } else {
-        if (bytes < ovs_msg_size) {
+        if (bytes < sizeof(pid)) {
             retval = EINVAL;
-            goto done;
+        } else {
+            sock->pid = pid;
         }
-
-        nlmsg = nl_msg_nlmsghdr(txn.reply);
-        if (nlmsg->nlmsg_seq != seq) {
-            retval = EINVAL;
-            goto done;
-        }
-        sock->pid = nlmsg->nlmsg_pid;
     }
-    retval = 0;
 
-done:
-    ofpbuf_uninit(&request);
-    ofpbuf_uninit(&reply);
     return retval;
 }
 #endif  /* _WIN32 */
@@ -511,6 +475,8 @@ nl_sock_send__(struct nl_sock *sock, const struct ofpbuf *msg,
             retval = -1;
             /* XXX: Map to a more appropriate error based on GetLastError(). */
             errno = EINVAL;
+            VLOG_DBG_RL(&rl, "fatal driver failure in write: %s",
+                ovs_lasterror_to_string());
         } else {
             retval = msg->size;
         }
@@ -600,7 +566,10 @@ nl_sock_recv__(struct nl_sock *sock, struct ofpbuf *buf, bool wait)
         DWORD bytes;
         if (!DeviceIoControl(sock->handle, sock->read_ioctl,
                              NULL, 0, tail, sizeof tail, &bytes, NULL)) {
+            VLOG_DBG_RL(&rl, "fatal driver failure in transact: %s",
+                ovs_lasterror_to_string());
             retval = -1;
+            /* XXX: Map to a more appropriate error. */
             errno = EINVAL;
         } else {
             retval = bytes;
@@ -825,61 +794,78 @@ nl_sock_transact_multiple__(struct nl_sock *sock,
     uint8_t reply_buf[65536];
     for (i = 0; i < n; i++) {
         DWORD reply_len;
+        bool ret;
         struct nl_transaction *txn = transactions[i];
         struct nlmsghdr *request_nlmsg, *reply_nlmsg;
 
-        if (!DeviceIoControl(sock->handle, OVS_IOCTL_TRANSACT,
-                             txn->request->data,
-                             txn->request->size,
-                             reply_buf, sizeof reply_buf,
-                             &reply_len, NULL)) {
-            /* XXX: Map to a more appropriate error. */
-            error = EINVAL;
-            break;
-        }
+        ret = DeviceIoControl(sock->handle, OVS_IOCTL_TRANSACT,
+                              txn->request->data,
+                              txn->request->size,
+                              reply_buf, sizeof reply_buf,
+                              &reply_len, NULL);
 
-        if (reply_len < sizeof *reply_nlmsg) {
-            nl_sock_record_errors__(transactions, n, 0);
-            VLOG_DBG_RL(&rl, "insufficient length of reply %#"PRIu32
-                " for seq: %#"PRIx32, reply_len, request_nlmsg->nlmsg_seq);
-            break;
-        }
-
-        /* Validate the sequence number in the reply. */
-        request_nlmsg = nl_msg_nlmsghdr(txn->request);
-        reply_nlmsg = (struct nlmsghdr *)reply_buf;
-
-        if (request_nlmsg->nlmsg_seq != reply_nlmsg->nlmsg_seq) {
-            ovs_assert(request_nlmsg->nlmsg_seq == reply_nlmsg->nlmsg_seq);
-            VLOG_DBG_RL(&rl, "mismatched seq request %#"PRIx32
-                ", reply %#"PRIx32, request_nlmsg->nlmsg_seq,
-                reply_nlmsg->nlmsg_seq);
-            break;
-        }
-
-        /* Handle errors embedded within the netlink message. */
-        ofpbuf_use_stub(&tmp_reply, reply_buf, sizeof reply_buf);
-        tmp_reply.size = sizeof reply_buf;
-        if (nl_msg_nlmsgerr(&tmp_reply, &txn->error)) {
+        if (ret && reply_len == 0) {
+            /*
+             * The current transaction did not produce any data to read and that
+             * is not an error as such. Continue with the remainder of the
+             * transactions.
+             */
+            txn->error = 0;
             if (txn->reply) {
                 ofpbuf_clear(txn->reply);
             }
-            if (txn->error) {
-                VLOG_DBG_RL(&rl, "received NAK error=%d (%s)",
-                            error, ovs_strerror(txn->error));
-            }
-        } else {
-            txn->error = 0;
-            if (txn->reply) {
-                /* Copy the reply to the buffer specified by the caller. */
-                if (reply_len > txn->reply->allocated) {
-                    ofpbuf_reinit(txn->reply, reply_len);
-                }
-                memcpy(txn->reply->data, reply_buf, reply_len);
-                txn->reply->size = reply_len;
-            }
+        } else if (!ret) {
+            /* XXX: Map to a more appropriate error. */
+            error = EINVAL;
+            VLOG_DBG_RL(&rl, "fatal driver failure: %s",
+                ovs_lasterror_to_string());
+            break;
         }
-        ofpbuf_uninit(&tmp_reply);
+
+        if (reply_len != 0) {
+            if (reply_len < sizeof *reply_nlmsg) {
+                nl_sock_record_errors__(transactions, n, 0);
+                VLOG_DBG_RL(&rl, "insufficient length of reply %#"PRIu32
+                    " for seq: %#"PRIx32, reply_len, request_nlmsg->nlmsg_seq);
+                break;
+            }
+
+            /* Validate the sequence number in the reply. */
+            request_nlmsg = nl_msg_nlmsghdr(txn->request);
+            reply_nlmsg = (struct nlmsghdr *)reply_buf;
+
+            if (request_nlmsg->nlmsg_seq != reply_nlmsg->nlmsg_seq) {
+                ovs_assert(request_nlmsg->nlmsg_seq == reply_nlmsg->nlmsg_seq);
+                VLOG_DBG_RL(&rl, "mismatched seq request %#"PRIx32
+                    ", reply %#"PRIx32, request_nlmsg->nlmsg_seq,
+                    reply_nlmsg->nlmsg_seq);
+                break;
+            }
+
+            /* Handle errors embedded within the netlink message. */
+            ofpbuf_use_stub(&tmp_reply, reply_buf, sizeof reply_buf);
+            tmp_reply.size = sizeof reply_buf;
+            if (nl_msg_nlmsgerr(&tmp_reply, &txn->error)) {
+                if (txn->reply) {
+                    ofpbuf_clear(txn->reply);
+                }
+                if (txn->error) {
+                    VLOG_DBG_RL(&rl, "received NAK error=%d (%s)",
+                                error, ovs_strerror(txn->error));
+                }
+            } else {
+                txn->error = 0;
+                if (txn->reply) {
+                    /* Copy the reply to the buffer specified by the caller. */
+                    if (reply_len > txn->reply->allocated) {
+                        ofpbuf_reinit(txn->reply, reply_len);
+                    }
+                    memcpy(txn->reply->data, reply_buf, reply_len);
+                    txn->reply->size = reply_len;
+                }
+            }
+            ofpbuf_uninit(&tmp_reply);
+        }
 
         /* Count the number of successful transactions. */
         (*done)++;
@@ -945,6 +931,11 @@ nl_sock_transact_multiple(struct nl_sock *sock,
         } else if (error) {
             VLOG_ERR_RL(&rl, "transaction error (%s)", ovs_strerror(error));
             nl_sock_record_errors__(transactions, n, error);
+            if (error != EAGAIN) {
+                /* A fatal error has occurred.  Abort the rest of
+                 * transactions. */
+                break;
+            }
         }
     }
 }

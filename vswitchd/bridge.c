@@ -203,6 +203,9 @@ static bool status_txn_try_again;
  * timeout in 'STATUS_CHECK_AGAIN_MSEC' to check again. */
 #define STATUS_CHECK_AGAIN_MSEC 100
 
+/* Statistics update to database. */
+static struct ovsdb_idl_txn *stats_txn;
+
 /* Each time this timer expires, the bridge fetches interface and mirror
  * statistics and pushes them into the database. */
 static int stats_timer_interval;
@@ -213,16 +216,6 @@ static long long int stats_timer = LLONG_MIN;
  */
 #define AA_REFRESH_INTERVAL (1000) /* In milliseconds. */
 static long long int aa_refresh_timer = LLONG_MIN;
-
-/* In some datapaths, creating and destroying OpenFlow ports can be extremely
- * expensive.  This can cause bridge_reconfigure() to take a long time during
- * which no other work can be done.  To deal with this problem, we limit port
- * adds and deletions to a window of OFP_PORT_ACTION_WINDOW milliseconds per
- * call to bridge_reconfigure().  If there is more work to do after the limit
- * is reached, 'need_reconfigure', is flagged and it's done on the next loop.
- * This allows the rest of the code to catch up on important things like
- * forwarding packets. */
-#define OFP_PORT_ACTION_WINDOW 10
 
 static void add_del_bridges(const struct ovsrec_open_vswitch *);
 static void bridge_run__(void);
@@ -506,7 +499,8 @@ bridge_exit(void)
  * should not be and in fact is not directly involved in that.  But
  * ovs-vswitchd needs to make sure that ovsdb-server can reach the managers, so
  * it has to tell in-band control where the managers are to enable that.
- * (Thus, only managers connected in-band are collected.)
+ * (Thus, only managers connected in-band and with non-loopback addresses
+ * are collected.)
  */
 static void
 collect_in_band_managers(const struct ovsrec_open_vswitch *ovs_cfg,
@@ -542,9 +536,11 @@ collect_in_band_managers(const struct ovsrec_open_vswitch *ovs_cfg,
                 struct sockaddr_in in;
             } sa;
 
+            /* Ignore loopback. */
             if (stream_parse_target_with_default_port(target, OVSDB_PORT,
                                                       &sa.ss)
-                && sa.ss.ss_family == AF_INET) {
+                && sa.ss.ss_family == AF_INET
+                && sa.in.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) {
                 managers[n_managers++] = sa.in;
             }
         }
@@ -577,10 +573,6 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
     ofproto_set_threads(
         smap_get_int(&ovs_cfg->other_config, "n-handler-threads", 0),
         smap_get_int(&ovs_cfg->other_config, "n-revalidator-threads", 0));
-
-    if (ovs_cfg) {
-        discover_types(ovs_cfg);
-    }
 
     /* Destroy "struct bridge"s, "struct port"s, and "struct iface"s according
      * to 'ovs_cfg', with only very minimal configuration otherwise.
@@ -2693,7 +2685,6 @@ refresh_controller_status(void)
 static void
 run_stats_update(void)
 {
-    static struct ovsdb_idl_txn *stats_txn;
     const struct ovsrec_open_vswitch *cfg = ovsrec_open_vswitch_first(idl);
     int stats_interval;
 
@@ -2745,6 +2736,18 @@ run_stats_update(void)
             ovsdb_idl_txn_destroy(stats_txn);
             stats_txn = NULL;
         }
+    }
+}
+
+static void
+stats_update_wait(void)
+{
+    /* If the 'stats_txn' is non-null (transaction incomplete), waits for the
+     * transaction to complete.  Otherwise, waits for the 'stats_timer'. */
+    if (stats_txn) {
+        ovsdb_idl_txn_wait(stats_txn);
+    } else {
+        poll_timer_wait_until(stats_timer);
     }
 }
 
@@ -2826,12 +2829,6 @@ run_status_update(void)
 static void
 status_update_wait(void)
 {
-    /* This prevents the process from constantly waking up on
-     * connectivity seq, when there is no connection to ovsdb. */
-    if (!ovsdb_idl_has_lock(idl)) {
-        return;
-    }
-
     /* If the 'status_txn' is non-null (transaction incomplete), waits for the
      * transaction to complete.  If the status update to database needs to be
      * run again (transaction fails), registers a timeout in
@@ -2895,7 +2892,10 @@ bridge_run(void)
          * disable system stats collection. */
         system_stats_enable(false);
         return;
-    } else if (!ovsdb_idl_has_lock(idl)) {
+    } else if (!ovsdb_idl_has_lock(idl)
+               || !ovsdb_idl_has_ever_connected(idl)) {
+        /* Returns if not holding the lock or not done retrieving db
+         * contents. */
         return;
     }
     cfg = ovsrec_open_vswitch_first(idl);
@@ -3014,11 +3014,10 @@ bridge_wait(void)
         HMAP_FOR_EACH (br, node, &all_bridges) {
             ofproto_wait(br->ofproto);
         }
-
-        poll_timer_wait_until(stats_timer);
+        stats_update_wait();
+        status_update_wait();
     }
 
-    status_update_wait();
     system_stats_wait();
 }
 
@@ -3910,12 +3909,12 @@ static void
 bridge_aa_refresh_queued(struct bridge *br)
 {
     struct ovs_list *list = xmalloc(sizeof *list);
-    struct bridge_aa_vlan *node;
+    struct bridge_aa_vlan *node, *next;
 
     list_init(list);
     ofproto_aa_vlan_get_queued(br->ofproto, list);
 
-    LIST_FOR_EACH(node, list_node, list) {
+    LIST_FOR_EACH_SAFE (node, next, list_node, list) {
         struct port *port;
 
         VLOG_INFO("ifname=%s, vlan=%u, oper=%u", node->port_name, node->vlan,

@@ -202,8 +202,10 @@ aa_print_element_status_port(struct ds *ds, struct lldpd_hardware *hw)
         if (memcmp(&port->p_element.system_id,
                    &system_id_null,
                    sizeof port->p_element.system_id)) {
-            static char *none_str = "<None>";
-            char *id = none_str, *descr = none_str, *system = none_str;
+            const char *none_str = "<None>";
+            const char *descr = NULL;
+            char *id = NULL;
+            char *system;
 
             if (port->p_chassis) {
                 if (port->p_chassis->c_id_len > 0) {
@@ -211,16 +213,16 @@ aa_print_element_status_port(struct ds *ds, struct lldpd_hardware *hw)
                                         port->p_chassis->c_id_len, &id);
                 }
 
-                descr = port->p_chassis->c_descr
-                    ? port->p_chassis->c_descr : none_str;
+                descr = port->p_chassis->c_descr;
             }
 
             chassisid_to_string((uint8_t *) &port->p_element.system_id,
                 sizeof port->p_element.system_id, &system);
 
-            ds_put_format(ds, "\tAuto Attach Primary Server Id: %s\n", id);
+            ds_put_format(ds, "\tAuto Attach Primary Server Id: %s\n",
+                          id ? id : none_str);
             ds_put_format(ds, "\tAuto Attach Primary Server Descr: %s\n",
-                          descr);
+                          descr ? descr : none_str);
             ds_put_format(ds, "\tAuto Attach Primary Server System Id: %s\n",
                           system);
 
@@ -421,12 +423,9 @@ aa_get_vlan_queued(struct ovs_list *list)
     ovs_mutex_lock(&mutex);
 
     HMAP_FOR_EACH (lldp, hmap_node, all_lldps) {
-        struct bridge_aa_vlan *node, *node_next;
+        struct bridge_aa_vlan *node;
 
-        LIST_FOR_EACH_SAFE (node,
-                            node_next,
-                            list_node,
-                            &lldp->active_mapping_queue) {
+        LIST_FOR_EACH_POP (node, list_node, &lldp->active_mapping_queue) {
             struct bridge_aa_vlan *copy;
 
             copy = xmalloc(sizeof *copy);
@@ -437,7 +436,6 @@ aa_get_vlan_queued(struct ovs_list *list)
             list_push_back(list, &copy->list_node);
 
             /* Cleanup */
-            list_remove(&node->list_node);
             free(node->port_name);
             free(node);
         }
@@ -483,12 +481,14 @@ aa_configure(const struct aa_settings *s)
         LIST_FOR_EACH (chassis, list, &lldp->lldpd->g_chassis) {
             /* System Description */
             free(chassis->c_descr);
-            chassis->c_descr = s->system_description[0] ?
+            chassis->c_descr = s && s->system_description[0] ?
                 xstrdup(s->system_description) : xstrdup(PACKAGE_STRING);
 
             /* System Name */
-            free(chassis->c_name);
-            chassis->c_name = xstrdup(s->system_name);
+            if (s) {
+                free(chassis->c_name);
+                chassis->c_name = xstrdup(s->system_name);
+            }
         }
     }
 
@@ -619,7 +619,6 @@ aa_mapping_unregister(void *aux)
             }
 
             hmap_remove(&lldp->mappings_by_aux, &m->hmap_node_aux);
-            free(m);
 
             /* Remove from all the lldp instances */
             LIST_FOR_EACH (hw, h_entries, &lldp->lldpd->g_hardware) {
@@ -629,6 +628,7 @@ aa_mapping_unregister(void *aux)
 
                 aa_mapping_unregister_mapping(lldp, hw, m);
             }
+            free(m);
 
             /* Remove from the all_mappings */
             HMAP_FOR_EACH (m, hmap_node_isid, all_mappings) {
@@ -660,9 +660,9 @@ lldp_init(void)
  * fields in 'wc' that were used to make the determination.
  */
 bool
-lldp_should_process_flow(const struct flow *flow)
+lldp_should_process_flow(struct lldp *lldp, const struct flow *flow)
 {
-    return (flow->dl_type == htons(ETH_TYPE_LLDP));
+    return (flow->dl_type == htons(ETH_TYPE_LLDP) && lldp->enabled);
 }
 
 
@@ -689,6 +689,9 @@ lldp_should_send_packet(struct lldp *cfg) OVS_EXCLUDED(mutex)
     ret = timer_expired(&cfg->tx_timer);
     ovs_mutex_unlock(&mutex);
 
+    /* LLDP must be enabled */
+    ret &= cfg->enabled;
+
     return ret;
 }
 
@@ -699,7 +702,7 @@ lldp_wake_time(const struct lldp *lldp) OVS_EXCLUDED(mutex)
 {
     long long int retval;
 
-    if (!lldp) {
+    if (!lldp || !lldp->enabled) {
         return LLONG_MAX;
     }
 
@@ -728,7 +731,6 @@ lldp_put_packet(struct lldp *lldp, struct dp_packet *packet,
 {
     struct lldpd *mylldpd = lldp->lldpd;
     struct lldpd_hardware *hw = lldpd_first_hardware(mylldpd);
-    uint32_t lldp_size = 0;
     static const uint8_t eth_addr_lldp[6] =
         {0x01, 0x80, 0xC2, 0x00, 0x00, 0x0e};
 
@@ -736,10 +738,7 @@ lldp_put_packet(struct lldp *lldp, struct dp_packet *packet,
 
     eth_compose(packet, eth_addr_lldp, eth_src, ETH_TYPE_LLDP, 0);
 
-    lldp_size = lldpd_send(hw, packet);
-    if (lldp_size + ETH_HEADER_LEN < MINIMUM_ETH_PACKET_SIZE) {
-        lldp_size = MINIMUM_ETH_PACKET_SIZE;
-    }
+    lldpd_send(hw, packet);
 
     timer_set_duration(&lldp->tx_timer, lldp->lldpd->g_config.c_tx_interval);
     ovs_mutex_unlock(&mutex);
@@ -748,9 +747,15 @@ lldp_put_packet(struct lldp *lldp, struct dp_packet *packet,
 /* Configures the LLDP stack.
  */
 bool
-lldp_configure(struct lldp *lldp) OVS_EXCLUDED(mutex)
+lldp_configure(struct lldp *lldp, const struct smap *cfg) OVS_EXCLUDED(mutex)
 {
     if (lldp) {
+        if (cfg && smap_get_bool(cfg, "enable", false)) {
+            lldp->enabled = true;
+        } else {
+            lldp->enabled = false;
+        }
+
         ovs_mutex_lock(&mutex);
         timer_set_expired(&lldp->tx_timer);
         timer_set_duration(&lldp->tx_timer, LLDP_DEFAULT_TRANSMIT_INTERVAL_MS);

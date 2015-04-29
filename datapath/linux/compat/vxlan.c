@@ -180,20 +180,16 @@ static void vxlan_build_gbp_hdr(struct vxlanhdr *vxh, u32 vxflags,
 	gbp->policy_id = htons(md->gbp & VXLAN_GBP_ID_MASK);
 }
 
-int vxlan_xmit_skb(struct vxlan_sock *vs,
-		   struct rtable *rt, struct sk_buff *skb,
-		   __be32 src, __be32 dst, __u8 tos, __u8 ttl, __be16 df,
-		   __be16 src_port, __be16 dst_port,
-		   struct vxlan_metadata *md, bool xnet, u32 vxflags)
+int rpl_vxlan_xmit_skb(struct vxlan_sock *vs,
+		       struct rtable *rt, struct sk_buff *skb,
+		       __be32 src, __be32 dst, __u8 tos, __u8 ttl, __be16 df,
+		       __be16 src_port, __be16 dst_port,
+		       struct vxlan_metadata *md, bool xnet, u32 vxflags)
 {
 	struct vxlanhdr *vxh;
 	int min_headroom;
 	int err;
 	bool udp_sum = !!(vxflags & VXLAN_F_UDP_CSUM);
-
-	skb = udp_tunnel_handle_offloads(skb, udp_sum, true);
-	if (IS_ERR(skb))
-		return PTR_ERR(skb);
 
 	min_headroom = LL_RESERVED_SPACE(rt_dst(rt).dev) + rt_dst(rt).header_len
 			+ VXLAN_HLEN + sizeof(struct iphdr)
@@ -210,6 +206,10 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 	if (WARN_ON(!skb))
 		return -ENOMEM;
 
+	skb = udp_tunnel_handle_offloads(skb, udp_sum, true);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
 	vxh = (struct vxlanhdr *) __skb_push(skb, sizeof(*vxh));
 	vxh->vx_flags = htonl(VXLAN_HF_VNI);
 	vxh->vx_vni = md->vni;
@@ -225,6 +225,7 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 				   ttl, df, src_port, dst_port, xnet,
 				   !udp_sum);
 }
+EXPORT_SYMBOL_GPL(rpl_vxlan_xmit_skb);
 
 static void rcu_free_vs(struct rcu_head *rcu)
 {
@@ -307,18 +308,20 @@ static struct vxlan_sock *vxlan_socket_create(struct net *net, __be16 port,
 	return vs;
 }
 
-struct vxlan_sock *vxlan_sock_add(struct net *net, __be16 port,
-				  vxlan_rcv_t *rcv, void *data,
-				  bool no_share, u32 flags)
+struct vxlan_sock *rpl_vxlan_sock_add(struct net *net, __be16 port,
+				      vxlan_rcv_t *rcv, void *data,
+				      bool no_share, u32 flags)
 {
 	return vxlan_socket_create(net, port, rcv, data, flags);
 }
+EXPORT_SYMBOL_GPL(rpl_vxlan_sock_add);
 
-void vxlan_sock_release(struct vxlan_sock *vs)
+void rpl_vxlan_sock_release(struct vxlan_sock *vs)
 {
 	ASSERT_OVSL();
 
 	queue_work(system_wq, &vs->del_work);
 }
+EXPORT_SYMBOL_GPL(rpl_vxlan_sock_release);
 
 #endif /* !USE_UPSTREAM_VXLAN */

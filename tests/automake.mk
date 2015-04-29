@@ -51,6 +51,7 @@ TESTSUITE_AT = \
 	tests/reconnect.at \
 	tests/ovs-vswitchd.at \
 	tests/dpif-netdev.at \
+	tests/dpctl.at \
 	tests/ofproto-dpif.at \
 	tests/bridge.at \
 	tests/vlan-splinters.at \
@@ -199,10 +200,17 @@ clean-local:
 	test ! -f '$(TESTSUITE)' || $(SHELL) '$(TESTSUITE)' -C tests --clean
 
 AUTOTEST = $(AUTOM4TE) --language=autotest
+
+if WIN32
 $(TESTSUITE): package.m4 $(TESTSUITE_AT) $(COMMON_MACROS_AT) $(TESTSUITE_PATCH)
+	$(AM_V_GEN)$(AUTOTEST) -I '$(srcdir)' -o testsuite.tmp $@.at
+	patch -p0 testsuite.tmp $(TESTSUITE_PATCH)
+	$(AM_V_at)mv testsuite.tmp $@
+else
+$(TESTSUITE): package.m4 $(TESTSUITE_AT) $(COMMON_MACROS_AT)
 	$(AM_V_GEN)$(AUTOTEST) -I '$(srcdir)' -o $@.tmp $@.at
-	patch -p0 $@.tmp $(TESTSUITE_PATCH)
 	$(AM_V_at)mv $@.tmp $@
+endif
 
 $(KMOD_TESTSUITE): package.m4 $(KMOD_TESTSUITE_AT) $(COMMON_MACROS_AT)
 	$(AM_V_GEN)$(AUTOTEST) -I '$(srcdir)' -o $@.tmp $@.at
@@ -235,7 +243,7 @@ tests_test_lib_LDADD = lib/libopenvswitch.la
 # idltest schema and IDL
 OVSIDL_BUILT += tests/idltest.c tests/idltest.h tests/idltest.ovsidl
 IDLTEST_IDL_FILES = tests/idltest.ovsschema tests/idltest.ann
-EXTRA_DIST += $(IDLTEST_IDL_FILES)
+EXTRA_DIST += $(IDLTEST_IDL_FILES) tests/idltest2.ovsschema
 tests/idltest.ovsidl: $(IDLTEST_IDL_FILES)
 	$(AM_V_GEN)$(OVSDB_IDLC) -C $(srcdir) annotate $(IDLTEST_IDL_FILES) > $@.tmp && \
 	mv $@.tmp $@

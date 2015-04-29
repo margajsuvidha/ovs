@@ -45,8 +45,6 @@ you will need the following software:
 
   - Python 2.x, for x >= 4.
 
-  - patch (The utility that is used to patch files).
-
 On Linux, you may choose to compile the kernel module that comes with
 the Open vSwitch distribution or to use the kernel module built into
 the Linux kernel (version 3.3 or later).  See the [FAQ.md] question
@@ -195,6 +193,20 @@ programs, also specify it on the configure command line, like so:
 To use 'clang' compiler:
 
       `% ./configure CC=clang`
+
+To supply special flags to the C compiler, specify them as CFLAGS on
+the configure command line.  If you want the default CFLAGS, which
+include "-g" to build debug symbols and "-O2" to enable optimizations,
+you must include them yourself.  For example, to build with the
+default CFLAGS plus "-mssse3", you might run configure as follows:
+
+      `% ./configure CFLAGS="-g -O2 -mssse3"`
+
+Note that these CFLAGS are not applied when building the Linux
+kernel module.  Custom CFLAGS for the kernel module are supplied
+using the EXTRA_CFLAGS variable when running make.  So, for example:
+
+      `% make EXTRA_CFLAGS="-Wno-error=date-time"
 
 To build the Linux kernel module, so that you can run the
 kernel-based switch, pass the location of the kernel build

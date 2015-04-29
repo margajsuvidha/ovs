@@ -39,7 +39,7 @@
 
 /*
  * deletion from this larval template list happens via nf_ct_put() */
-void nf_conntrack_tmpl_insert(struct net *net, struct nf_conn *tmpl)
+void rpl_nf_conntrack_tmpl_insert(struct net *net, struct nf_conn *tmpl)
 {
 	__set_bit(IPS_TEMPLATE_BIT, &tmpl->status);
 	__set_bit(IPS_CONFIRMED_BIT, &tmpl->status);
@@ -53,6 +53,6 @@ void nf_conntrack_tmpl_insert(struct net *net, struct nf_conn *tmpl)
 	spin_unlock_bh(&nf_conntrack_lock);
 #endif
 }
-EXPORT_SYMBOL_GPL(nf_conntrack_tmpl_insert);
+EXPORT_SYMBOL_GPL(rpl_nf_conntrack_tmpl_insert);
 
 #endif

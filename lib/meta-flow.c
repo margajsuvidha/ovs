@@ -2385,9 +2385,12 @@ mf_format_conn_state_string(uint8_t value, uint8_t mask, struct ds *s)
 }
 
 static void
-mf_format_conn_label_string(ovs_u128 value OVS_UNUSED, ovs_u128 mask OVS_UNUSED, struct ds *s OVS_UNUSED)
+mf_format_conn_label_string(ovs_u128 value, ovs_u128 *mask, struct ds *s)
 {
-    /* XXX: Reuse match.c helper function? */
+    ds_put_format(s, "conn_label="U128_FMT, U128_ARGS(&value));
+    if (mask) {
+        ds_put_format(s, "/"U128_FMT, U128_ARGS(mask));
+    }
 }
 
 /* Appends to 's' a string representation of field 'mf' whose value is in
@@ -2431,7 +2434,7 @@ mf_format(const struct mf_field *mf,
         break;
 
     case MFS_CONN_LABEL:
-        mf_format_conn_label_string(value->u128, mask->u128, s);
+        mf_format_conn_label_string(value->u128, (ovs_u128 *)mask, s);
         break;
 
     case MFS_ETHERNET:

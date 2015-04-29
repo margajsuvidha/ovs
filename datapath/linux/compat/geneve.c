@@ -11,6 +11,9 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,0,0)
+
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/module.h>
@@ -81,19 +84,15 @@ static void geneve_build_header(struct genevehdr *geneveh,
  *
  * This function will add other UDP tunnel headers.
  */
-int geneve_xmit_skb(struct geneve_sock *gs, struct rtable *rt,
-		    struct sk_buff *skb, __be32 src, __be32 dst, __u8 tos,
-		    __u8 ttl, __be16 df, __be16 src_port, __be16 dst_port,
-		    __be16 tun_flags, u8 vni[3], u8 opt_len, u8 *opt,
-		    bool csum, bool xnet)
+int rpl_geneve_xmit_skb(struct geneve_sock *gs, struct rtable *rt,
+		        struct sk_buff *skb, __be32 src, __be32 dst, __u8 tos,
+		        __u8 ttl, __be16 df, __be16 src_port, __be16 dst_port,
+		        __be16 tun_flags, u8 vni[3], u8 opt_len, u8 *opt,
+		        bool csum, bool xnet)
 {
 	struct genevehdr *gnvh;
 	int min_headroom;
 	int err;
-
-	skb = udp_tunnel_handle_offloads(skb, csum, (opt_len == 0));
-	if (IS_ERR(skb))
-		return PTR_ERR(skb);
 
 	min_headroom = LL_RESERVED_SPACE(rt_dst(rt).dev) + rt_dst(rt).header_len
 			+ GENEVE_BASE_HLEN + opt_len + sizeof(struct iphdr)
@@ -109,6 +108,10 @@ int geneve_xmit_skb(struct geneve_sock *gs, struct rtable *rt,
 	if (unlikely(!skb))
 		return -ENOMEM;
 
+	skb = udp_tunnel_handle_offloads(skb, csum, (opt_len == 0));
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
+
 	gnvh = (struct genevehdr *)__skb_push(skb, sizeof(*gnvh) + opt_len);
 	geneve_build_header(gnvh, tun_flags, vni, opt_len, opt);
 
@@ -118,6 +121,7 @@ int geneve_xmit_skb(struct geneve_sock *gs, struct rtable *rt,
 				   tos, ttl, df, src_port, dst_port, xnet,
 				   !csum);
 }
+EXPORT_SYMBOL_GPL(rpl_geneve_xmit_skb);
 
 /* Callback from net/ipv4/udp.c to receive packets */
 static int geneve_udp_encap_recv(struct sock *sk, struct sk_buff *skb)
@@ -220,12 +224,13 @@ static struct geneve_sock *geneve_socket_create(struct net *net, __be16 port,
 	return gs;
 }
 
-struct geneve_sock *geneve_sock_add(struct net *net, __be16 port,
-				    geneve_rcv_t *rcv, void *data,
-				    bool no_share, bool ipv6)
+struct geneve_sock *rpl_geneve_sock_add(struct net *net, __be16 port,
+				        geneve_rcv_t *rcv, void *data,
+				        bool no_share, bool ipv6)
 {
 	return geneve_socket_create(net, port, rcv, data, ipv6);
 }
+EXPORT_SYMBOL_GPL(rpl_geneve_sock_add);
 
 static void rcu_free_gs(struct rcu_head *rcu)
 {
@@ -234,8 +239,11 @@ static void rcu_free_gs(struct rcu_head *rcu)
 	kfree(gs);
 }
 
-void geneve_sock_release(struct geneve_sock *gs)
+void rpl_geneve_sock_release(struct geneve_sock *gs)
 {
 	udp_tunnel_sock_release(gs->sock);
 	call_rcu(&gs->rcu, rcu_free_gs);
 }
+EXPORT_SYMBOL_GPL(rpl_geneve_sock_release);
+
+#endif /* kernel < 4.0 */

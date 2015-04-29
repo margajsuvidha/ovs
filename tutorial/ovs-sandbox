@@ -1,6 +1,6 @@
 #! /bin/sh
 #
-# Copyright (c) 2013 Nicira, Inc.
+# Copyright (c) 2013, 2015 Nicira, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,15 +28,24 @@ run_xterm() {
 
 rungdb() {
     under_gdb=$1
+    gdb_run=$2
     shift
+    shift
+
     # Remove the --detach and to put the process under gdb control.
     # Also remove --vconsole:off to allow error message to show up
     # on the console.
     # Use "DISPLAY" variable to determine out if X is supported
     if $under_gdb && [ "$DISPLAY" ]; then
         args=`echo $@ |sed s/--detach//g | sed s/--vconsole:off//g`
-	xterm_title=$1
-	run_xterm $xterm_title gdb --args $args
+        xterm_title=$1
+
+        gdb_cmd=""
+        if $gdb_run; then
+            gdb_cmd="-ex run"
+        fi
+
+        run_xterm $xterm_title gdb $gdb_cmd --args $args
     else
         run $@
     fi
@@ -44,6 +53,8 @@ rungdb() {
 
 gdb_vswitchd=false
 gdb_ovsdb=false
+gdb_vswitchd_ex=false
+gdb_ovsdb_ex=false
 builddir=
 srcdir=
 schema=
@@ -126,9 +137,19 @@ EOF
             ;;
         -g|--gdb-v*)
             gdb_vswitchd=true
+            gdb_vswitchd_ex=false
+            ;;
+        -e|--gdb-ex-v*)
+            gdb_vswitchd=true
+            gdb_vswitchd_ex=true
             ;;
         -d|--gdb-o*)
             gdb_ovsdb=true
+            gdb_ovsdb_ex=false
+            ;;
+        -r|--gdb-ex-o*)
+            gdb_ovsdb=true
+            gdb_ovsdb_ex=true
             ;;
         -*)
             echo "unrecognized option $option (use --help for help)" >&2
@@ -232,11 +253,26 @@ trap 'kill `cat "$sandbox"/*.pid`' 0 1 2 3 13 14 15
 # Create database and start ovsdb-server.
 touch "$sandbox"/.conf.db.~lock~
 run ovsdb-tool create conf.db "$schema"
-rungdb $gdb_ovsdb ovsdb-server --detach --no-chdir --pidfile -vconsole:off --log-file \
+rungdb $gdb_ovsdb $gdb_ovsdb_ex ovsdb-server --detach --no-chdir --pidfile -vconsole:off --log-file \
     --remote=punix:"$sandbox"/db.sock
 
+#Add a small delay to allow ovsdb-server to launch.
+sleep 0.1
+
+#Wait for ovsdb-server to finish launching.
+if test ! -e "$sandbox"/db.sock; then
+    echo -n "Waiting for ovsdb-server to start..."
+    while test ! -e "$sandbox"/db.sock; do
+        sleep 1;
+    done
+    echo "  Done"
+fi
+
+# Initialize database.
+run ovs-vsctl --no-wait -- init
+
 # Start ovs-vswitchd.
-rungdb $gdb_vswitchd ovs-vswitchd --detach --no-chdir --pidfile -vconsole:off --log-file \
+rungdb $gdb_vswitchd $gdb_vswitchd_ex ovs-vswitchd --detach --no-chdir --pidfile -vconsole:off --log-file \
     --enable-dummy=override -vvconn -vnetdev_dummy
 
 cat <<EOF

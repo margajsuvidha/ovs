@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, 2012, 2013 Nicira, Inc.
+ * Copyright (c) 2010, 2011, 2012, 2013, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@
 #include "odp-util.h"
 #include "ofp-print.h"
 #include "ofpbuf.h"
+#include "ovs-atomic.h"
 #include "packets.h"
 #include "pcap-file.h"
 #include "poll-loop.h"
@@ -341,13 +342,15 @@ dummy_packet_conn_set_config(struct dummy_packet_conn *conn,
 
     switch (conn->type) {
     case PASSIVE:
-        if (!strcmp(pstream_get_name(conn->u.pconn.pstream), pstream)) {
+        if (pstream &&
+            !strcmp(pstream_get_name(conn->u.pconn.pstream), pstream)) {
             return;
         }
         dummy_packet_conn_close(conn);
         break;
     case ACTIVE:
-        if (!strcmp(stream_get_name(conn->u.rconn.rstream->stream), stream)) {
+        if (stream &&
+            !strcmp(stream_get_name(conn->u.rconn.rstream->stream), stream)) {
             return;
         }
         dummy_packet_conn_close(conn);
@@ -833,7 +836,7 @@ netdev_dummy_rxq_recv(struct netdev_rxq *rxq_, struct dp_packet **arr,
     ovs_mutex_unlock(&netdev->mutex);
 
     dp_packet_pad(packet);
-    dp_packet_set_dp_hash(packet, 0);
+    dp_packet_set_rss_hash(packet, 0);
 
     arr[0] = packet;
     *c = 1;

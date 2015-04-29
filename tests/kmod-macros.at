@@ -89,15 +89,3 @@ m4_define([NETNS_DAEMONIZE],
       echo "kill \`cat $3\`" >> cleanup
     ]
 )
-
-# LOAD_MODULES(module, [, module ... ])
-#
-# Load each 'module' into the kernel.
-#
-m4_define([LOAD_MODULES],
-    [m4_foreach([mod], [$@],
-                [AT_CHECK([modprobe mod])
-                 ON_EXIT([modprobe -r mod])
-                ])
-    ]
-)

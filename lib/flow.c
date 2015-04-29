@@ -119,7 +119,7 @@ struct mf_ctx {
  * away.  Some GCC versions gave warnings on ALWAYS_INLINE, so these are
  * defined as macros. */
 
-#if (FLOW_WC_SEQ != 31)
+#if (FLOW_WC_SEQ != 32)
 #define MINIFLOW_ASSERT(X) ovs_assert(X)
 BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
                "assertions enabled. Consider updating FLOW_WC_SEQ after "
@@ -898,10 +898,14 @@ flow_format(struct ds *ds, const struct flow *flow)
 
     /* As this function is most often used for formatting a packet in a
      * packet-in message, skip formatting the packet context fields that are
-     * all-zeroes (Openflow spec encourages leaving out all-zeroes context
-     * fields from the packet-in messages).  We make an exception with the
-     * 'in_port' field, which we always format, as packets usually have an
-     * in_port, and 0 is a port just like any other port. */
+     * all-zeroes to make the print-out easier on the eyes.  This means that a
+     * missing context field implies a zero value for that field.  This is
+     * similar to OpenFlow encoding of these fields, as the specification
+     * states that all-zeroes context fields should not be encoded in the
+     * packet-in messages. */
+    if (!flow->in_port.ofp_port) {
+        WC_UNMASK_FIELD(wc, in_port);
+    }
     if (!flow->skb_priority) {
         WC_UNMASK_FIELD(wc, skb_priority);
     }

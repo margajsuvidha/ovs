@@ -161,7 +161,7 @@ bool ovs_ct_state_valid(const struct sw_flow_key *key)
 }
 
 /* 'skb' should already be pulled to nh_ofs. */
-int ovs_ct_helper(struct sk_buff *skb, u16 proto)
+static int ovs_ct_helper(struct sk_buff *skb, u16 proto)
 {
 	const struct nf_conntrack_helper *helper;
 	const struct nf_conn_help *help;
@@ -264,11 +264,15 @@ static int ovs_ct_lookup__(struct net *net, const struct sw_flow_key *key,
 			skb->nfctinfo = IP_CT_NEW;
 		}
 
-		return nf_conntrack_in(net, info->family, NF_INET_PRE_ROUTING,
-				       skb);
+		if (nf_conntrack_in(net, info->family, NF_INET_PRE_ROUTING,
+				    skb) != NF_ACCEPT)
+			return -ENOENT;
+
+		if (ovs_ct_helper(skb, info->family) != NF_ACCEPT)
+			return -EINVAL;
 	}
 
-	return NF_ACCEPT;
+	return 0;
 }
 
 static void __ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
@@ -291,7 +295,7 @@ static void ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
 	if (ct) {
 		state = ovs_ct_get_state__(ctinfo);
 		zone = nf_ct_zone(ct);
-		if (ct->master) /* XXX */
+		if (ct->master)
 			state |= OVS_CS_F_RELATED;
 	} else {
 		state = OVS_CS_F_TRACKED | OVS_CS_F_INVALID;
@@ -314,14 +318,14 @@ static int ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 		state = OVS_CS_F_TRACKED | OVS_CS_F_NEW | OVS_CS_F_RELATED;
 		__ovs_ct_update_key(skb, key, state, info->zone);
 	} else {
-		if (ovs_ct_lookup__(net, key, info, skb) != NF_ACCEPT)
-			return -ENOENT;
+		int err;
+
+		err = ovs_ct_lookup__(net, key, info, skb);
+		if (err)
+			return err;
 
 		ovs_ct_update_key(skb, key, info->zone);
 	}
-
-	if (ovs_ct_helper(skb, info->family) != NF_ACCEPT)
-		return -EINVAL;
 
 	return 0;
 }
@@ -332,6 +336,7 @@ static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 			 struct sk_buff *skb)
 {
 	u8 state;
+	int err;
 
 	state = key->conn.state;
 	if (key->conn.zone == info->zone &&
@@ -341,10 +346,9 @@ static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 		return 0;
 	}
 
-	if (ovs_ct_lookup__(net, key, info, skb) != NF_ACCEPT)
-		return -ENOENT;
-	if (ovs_ct_helper(skb, info->family) != NF_ACCEPT)
-		return -EINVAL;
+	err = ovs_ct_lookup__(net, key, info, skb);
+	if (err)
+		return err;
 	if (nf_conntrack_confirm(skb) != NF_ACCEPT)
 		return -EINVAL;
 
@@ -395,7 +399,7 @@ int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
 	if (ct->mark != new_mark) {
 		ct->mark = new_mark;
 		nf_conntrack_event_cache(IPCT_MARK, ct);
-		key->conn.mark = conn_mark; /* XXX: Remove */
+		key->conn.mark = conn_mark;
 	}
 
 	return 0;
@@ -433,7 +437,6 @@ int ovs_ct_set_label(struct sk_buff *skb, struct sw_flow_key *key,
 	if (err)
 		return err;
 
-	/* XXX: Remove */
 	ovs_ct_get_label(skb, &key->conn.label);
 	return 0;
 #else

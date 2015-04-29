@@ -80,6 +80,7 @@ int rpl_iptunnel_xmit(struct sock *sk, struct rtable *rt, struct sk_buff *skb,
 		pkt_len = 0;
 	return pkt_len;
 }
+EXPORT_SYMBOL_GPL(rpl_iptunnel_xmit);
 
 struct sk_buff *ovs_iptunnel_handle_offloads(struct sk_buff *skb,
 					     bool csum_help, int gso_type_mask,
@@ -132,8 +133,9 @@ error:
 	kfree_skb(skb);
 	return ERR_PTR(err);
 }
+EXPORT_SYMBOL_GPL(ovs_iptunnel_handle_offloads);
 
-int iptunnel_pull_header(struct sk_buff *skb, int hdr_len, __be16 inner_proto)
+int rpl_iptunnel_pull_header(struct sk_buff *skb, int hdr_len, __be16 inner_proto)
 {
 	if (unlikely(!pskb_may_pull(skb, hdr_len)))
 		return -ENOMEM;
@@ -166,13 +168,15 @@ int iptunnel_pull_header(struct sk_buff *skb, int hdr_len, __be16 inner_proto)
 	skb->pkt_type = PACKET_HOST;
 	return 0;
 }
+EXPORT_SYMBOL_GPL(rpl_iptunnel_pull_header);
 
 #endif
 
-bool skb_is_encapsulated(struct sk_buff *skb)
+bool ovs_skb_is_encapsulated(struct sk_buff *skb)
 {
 	/* checking for inner protocol should be sufficient on newer kernel, but
 	 * old kernel just set encapsulation bit.
 	 */
 	return ovs_skb_get_inner_protocol(skb) || skb_encapsulation(skb);
 }
+EXPORT_SYMBOL_GPL(ovs_skb_is_encapsulated);

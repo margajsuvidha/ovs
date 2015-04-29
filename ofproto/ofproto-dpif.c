@@ -861,7 +861,7 @@ open_dpif_backer(const char *type, struct dpif_backer **backerp)
     struct dpif_port port;
     struct shash_node *node;
     struct ovs_list garbage_list;
-    struct odp_garbage *garbage, *next;
+    struct odp_garbage *garbage;
 
     struct sset names;
     char *backer_name;
@@ -939,9 +939,8 @@ open_dpif_backer(const char *type, struct dpif_backer **backerp)
     }
     dpif_port_dump_done(&port_dump);
 
-    LIST_FOR_EACH_SAFE (garbage, next, list_node, &garbage_list) {
+    LIST_FOR_EACH_POP (garbage, list_node, &garbage_list) {
         dpif_port_del(backer->dpif, garbage->odp_port);
-        list_remove(&garbage->list_node);
         free(garbage);
     }
 
@@ -1402,7 +1401,7 @@ static void
 destruct(struct ofproto *ofproto_)
 {
     struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofproto_);
-    struct ofproto_packet_in *pin, *next_pin;
+    struct ofproto_packet_in *pin;
     struct rule_dpif *rule;
     struct oftable *table;
     struct ovs_list pins;
@@ -1425,8 +1424,7 @@ destruct(struct ofproto *ofproto_)
     }
 
     guarded_list_pop_all(&ofproto->pins, &pins);
-    LIST_FOR_EACH_SAFE (pin, next_pin, list_node, &pins) {
-        list_remove(&pin->list_node);
+    LIST_FOR_EACH_POP (pin, list_node, &pins) {
         free(CONST_CAST(void *, pin->up.packet));
         free(pin);
     }
@@ -1481,13 +1479,12 @@ run(struct ofproto *ofproto_)
     /* Do not perform any periodic activity required by 'ofproto' while
      * waiting for flow restore to complete. */
     if (!ofproto_get_flow_restore_wait()) {
-        struct ofproto_packet_in *pin, *next_pin;
+        struct ofproto_packet_in *pin;
         struct ovs_list pins;
 
         guarded_list_pop_all(&ofproto->pins, &pins);
-        LIST_FOR_EACH_SAFE (pin, next_pin, list_node, &pins) {
+        LIST_FOR_EACH_POP (pin, list_node, &pins) {
             connmgr_send_packet_in(ofproto->up.connmgr, pin);
-            list_remove(&pin->list_node);
             free(CONST_CAST(void *, pin->up.packet));
             free(pin);
         }
@@ -1940,14 +1937,12 @@ static int
 set_cfm(struct ofport *ofport_, const struct cfm_settings *s)
 {
     struct ofport_dpif *ofport = ofport_dpif_cast(ofport_);
+    struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofport->up.ofproto);
+    struct cfm *old = ofport->cfm;
     int error = 0;
 
     if (s) {
         if (!ofport->cfm) {
-            struct ofproto_dpif *ofproto;
-
-            ofproto = ofproto_dpif_cast(ofport->up.ofproto);
-            ofproto->backer->need_revalidate = REV_RECONFIGURE;
             ofport->cfm = cfm_create(ofport->up.netdev);
         }
 
@@ -1961,6 +1956,9 @@ set_cfm(struct ofport *ofport_, const struct cfm_settings *s)
     cfm_unref(ofport->cfm);
     ofport->cfm = NULL;
 out:
+    if (ofport->cfm != old) {
+        ofproto->backer->need_revalidate = REV_RECONFIGURE;
+    }
     ofproto_dpif_monitor_port_update(ofport, ofport->bfd, ofport->cfm,
                                      ofport->lldp, ofport->up.pp.hw_addr);
     return error;
@@ -2047,16 +2045,15 @@ set_lldp(struct ofport *ofport_,
             ofport->lldp = lldp_create(ofport->up.netdev, ofport_->mtu, cfg);
         }
 
-        if (lldp_configure(ofport->lldp)) {
-            error = 0;
-            goto out;
+        if (!lldp_configure(ofport->lldp, cfg)) {
+            error = EINVAL;
         }
-
-        error = EINVAL;
     }
-    lldp_unref(ofport->lldp);
-    ofport->lldp = NULL;
-out:
+    if (error) {
+        lldp_unref(ofport->lldp);
+        ofport->lldp = NULL;
+    }
+
     ofproto_dpif_monitor_port_update(ofport,
                                      ofport->bfd,
                                      ofport->cfm,
