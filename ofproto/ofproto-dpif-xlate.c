@@ -4103,6 +4103,22 @@ recirc_unroll_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
     }
 
 static void
+put_connhelper(struct ofpbuf *odp_actions, struct ofpact_conntrack *ofc)
+{
+    if (ofc->alg) {
+        /* XXX: Is this always in netinet/in.h? */
+        if (ofc->alg == IPPORT_FTP) {
+            const char *helper = "ftp";
+
+            nl_msg_put_string__(odp_actions, OVS_CT_ATTR_HELPER, helper,
+                                strlen(helper));
+        } else {
+            VLOG_WARN("Cannot serialize connhelper %d\n", ofc->alg);
+        }
+    }
+}
+
+static void
 compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
 {
     struct ofpbuf *odp_actions = ctx->xout->odp_actions;
@@ -4116,6 +4132,7 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
     ct_offset = nl_msg_start_nested(odp_actions, OVS_ACTION_ATTR_CT);
     nl_msg_put_u32(odp_actions, OVS_CT_ATTR_FLAGS, flags);
     nl_msg_put_u16(odp_actions, OVS_CT_ATTR_ZONE, ofc->zone);
+    put_connhelper(odp_actions, ofc);
     nl_msg_end_nested(odp_actions, ct_offset);
 
     if (ofc->flags & NX_CT_F_RECIRC) {
