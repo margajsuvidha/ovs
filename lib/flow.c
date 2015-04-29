@@ -472,7 +472,8 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
         miniflow_pad_to_64(mf, conj_id);
     }
 
-    if (md->conn_zone || md->conn_state) {
+    if (md->conn_mark || md->conn_zone || md->conn_state) {
+        miniflow_push_uint32(mf, conn_mark, md->conn_mark);
         miniflow_push_uint16(mf, conn_zone, md->conn_zone);
         miniflow_push_uint8(mf, conn_state, md->conn_state);
         miniflow_pad_to_64(mf, pad1);
@@ -828,6 +829,7 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
     match_set_in_port(flow_metadata, flow->in_port.ofp_port);
     match_set_conn_state(flow_metadata, flow->conn_state);
     match_set_conn_zone(flow_metadata, flow->conn_zone);
+    match_set_conn_mark(flow_metadata, flow->conn_mark);
 }
 
 char *
@@ -938,6 +940,9 @@ flow_format(struct ds *ds, const struct flow *flow)
     if (!flow->conn_zone) {
         WC_UNMASK_FIELD(wc, conn_zone);
     }
+    if (!flow->conn_mark) {
+        WC_UNMASK_FIELD(wc, conn_mark);
+    }
     for (int i = 0; i < FLOW_N_REGS; i++) {
         if (!flow->regs[i]) {
             WC_UNMASK_FIELD(wc, regs[i]);
@@ -1002,6 +1007,7 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
     WC_MASK_FIELD(wc, pkt_mark);
     WC_MASK_FIELD(wc, conn_state);
     WC_MASK_FIELD(wc, conn_zone);
+    WC_MASK_FIELD(wc, conn_mark);
     WC_MASK_FIELD(wc, recirc_id);
     WC_MASK_FIELD(wc, dp_hash);
     WC_MASK_FIELD(wc, in_port);
@@ -1085,7 +1091,7 @@ flow_wc_map(const struct flow *flow)
     /* Metadata fields that can appear on packet input. */
     map |= MINIFLOW_MAP(skb_priority) | MINIFLOW_MAP(pkt_mark)
         | MINIFLOW_MAP(recirc_id) | MINIFLOW_MAP(dp_hash)
-        | MINIFLOW_MAP(in_port)
+        | MINIFLOW_MAP(in_port) | MINIFLOW_MAP(conn_mark)
         | MINIFLOW_MAP(conn_zone) | MINIFLOW_MAP(conn_state)
         | MINIFLOW_MAP(dl_dst) | MINIFLOW_MAP(dl_src)
         | MINIFLOW_MAP(dl_type) | MINIFLOW_MAP(vlan_tci);
