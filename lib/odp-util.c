@@ -621,8 +621,10 @@ format_odp_conntrack_action(struct ds *ds, const struct nlattr *attr)
     static const struct nl_policy ovs_conntrack_policy[] = {
         [OVS_CT_ATTR_FLAGS] = { .type = NL_A_U32, .optional = true },
         [OVS_CT_ATTR_ZONE] = { .type = NL_A_U16, .optional = true },
+        [OVS_CT_ATTR_HELPER] = { .type = NL_A_STRING, .optional = true },
     };
     struct nlattr *a[ARRAY_SIZE(ovs_conntrack_policy)];
+    const char *helper;
     uint32_t flags;
 
     if (!nl_parse_nested(attr, ovs_conntrack_policy, a, ARRAY_SIZE(a))) {
@@ -631,10 +633,15 @@ format_odp_conntrack_action(struct ds *ds, const struct nlattr *attr)
     }
 
     flags = nl_attr_get_u32(a[OVS_CT_ATTR_FLAGS]);
+    helper = a[OVS_CT_ATTR_HELPER] ? nl_attr_get(a[OVS_CT_ATTR_HELPER]) : NULL;
 
-    ds_put_format(ds, "ct(%szone=%"PRIu16")",
+    ds_put_format(ds, "ct(%szone=%"PRIu16,
                   flags & OVS_CT_F_COMMIT ? "commit," : "",
                   nl_attr_get_u16(a[OVS_CT_ATTR_ZONE]));
+    if (helper) {
+        ds_put_format(ds, ",helper=%s", helper);
+    }
+    ds_put_cstr(ds, ")");
 }
 
 static void
@@ -1037,6 +1044,7 @@ parse_conntrack_action(const char *s_, struct ofpbuf *actions)
     const char *s = s_;
 
     if (ovs_scan(s, "ct(")) {
+        const char *helper = NULL;
         uint32_t flags = 0;
         uint16_t zone = 0;
         size_t start;
@@ -1059,6 +1067,14 @@ parse_conntrack_action(const char *s_, struct ofpbuf *actions)
             if (ovs_scan(s, "zone=%"SCNu16"%n", &zone, &n)) {
                 continue;
             }
+            if (ovs_scan(s, "helper=%n", &n)) {
+                s += n;
+                n = strspn(s, delimiters);
+                if (n > 15) { /* XXX */
+                    return -EINVAL;
+                }
+                helper = s;
+            }
 
             if (n < 0) {
                 return -EINVAL;
@@ -1073,6 +1089,11 @@ parse_conntrack_action(const char *s_, struct ofpbuf *actions)
         }
         if (zone) {
             nl_msg_put_u16(actions, OVS_CT_ATTR_ZONE, zone);
+        }
+        if (helper) {
+            int n = strspn(helper, delimiters);
+
+            nl_msg_put_string__(actions, OVS_CT_ATTR_HELPER, helper, n);
         }
         nl_msg_end_nested(actions, start);
     }
