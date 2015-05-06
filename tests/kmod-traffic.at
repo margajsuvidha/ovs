@@ -491,7 +491,7 @@ AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.1)], [0], [dnl
 dnl FTP requests from p0->p1 should work fine.
 AT_CHECK([ip netns exec at_ns0 wget ftp://10.1.1.2 --no-passive-ftp -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep -v "FIN"], [0], [dnl
-TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=1
+TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 helper=ftp use=1
 ])
 
 dnl Try the second set of flows.
@@ -508,7 +508,7 @@ AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.1)], [0], [dnl
 dnl FTP requests from p0->p1 should work fine.
 AT_CHECK([ip netns exec at_ns0 wget ftp://10.1.1.2 --no-passive-ftp -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep -v "FIN"], [0], [dnl
-TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=2
+TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 helper=ftp use=2
 TIME_WAIT src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=1
 ])
 
