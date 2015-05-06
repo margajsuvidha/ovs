@@ -78,6 +78,17 @@ m4_define([ADD_VETH],
     ]
 )
 
+# CONNTRACK()
+#
+# Perform requirements checks for running conntrack tests, and flush the
+# kernel conntrack tables when the test is finished.
+m4_define([CONNTRACK],
+    [AT_SKIP_IF([test $HAVE_CONNTRACK = no])
+     AT_SKIP_IF([test $HAVE_PYTHON = no])
+     ON_EXIT([conntrack -F])
+    ]
+)
+
 # NETNS_DAEMONIZE([namespace], [command], [pidfile])
 #
 # Run 'command' as a background process within 'namespace' and record its pid
