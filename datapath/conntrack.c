@@ -578,10 +578,8 @@ int ovs_ct_copy_action(struct net *net, const struct nlattr *attr,
 		memset(&t, 0, sizeof(t));
 		ct_info.ct = nf_conntrack_alloc(net, ct_info.zone, &t, &t,
 						GFP_KERNEL);
-		if (IS_ERR(ct_info.ct)) {
-			err = PTR_ERR(ct_info.ct);
-			goto err_free_ct;
-		}
+		if (IS_ERR(ct_info.ct))
+			return PTR_ERR(ct_info.ct);
 		if (helper) {
 			err = ovs_ct_add_helper(&ct_info, helper, key, log);
 			if (err)
