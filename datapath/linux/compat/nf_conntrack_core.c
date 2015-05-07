@@ -1,3 +1,6 @@
+#include <linux/version.h>
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(3,9,0)
 #ifndef HAVE_NF_CONNTRACK_TMPL_INSERT
 
 #include <linux/types.h>
@@ -55,4 +58,5 @@ void rpl_nf_conntrack_tmpl_insert(struct net *net, struct nf_conn *tmpl)
 }
 EXPORT_SYMBOL_GPL(rpl_nf_conntrack_tmpl_insert);
 
-#endif
+#endif /* HAVE_NF_CONNTRACK_TMPL_INSERT */
+#endif /* Linux > 3.9 */

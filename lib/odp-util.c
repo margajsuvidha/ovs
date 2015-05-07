@@ -2610,9 +2610,9 @@ scan_conn_state(const char *s, uint8_t *key, uint8_t *mask)
     n = parse_flags(s, packet_conn_state_to_string, &flags,
                     UINT8_MAX, mask ? &fmask : NULL);
     if (n >= 0) {
-        *key = htonl(flags);
+        *key = flags;
         if (mask) {
-            *mask = htonl(fmask);
+            *mask = fmask;
         }
         return n;
     }

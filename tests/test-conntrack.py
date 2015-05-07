@@ -50,10 +50,11 @@ def main():
     if ftpd is not None:
         SERVERS['ftp'] = ftpd
 
+    protocols = [srv[0] for srv in SERVERS]
     parser = argparse.ArgumentParser(
             description='Run basic application servers.')
     parser.add_argument('proto', default='http', nargs='?',
-            help='protocol to serve (http, http6, ftp)')
+            help='protocol to serve (%s)' % protocols)
     args = parser.parse_args()
 
     if args.proto not in SERVERS:

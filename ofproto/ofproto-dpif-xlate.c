@@ -4005,16 +4005,14 @@ recirc_put_unroll_xlate(struct xlate_ctx *ctx)
 
     /* Restore the table_id and rule cookie for a potential PACKET
      * IN if needed. */
-    if (!unroll
-        || ctx->table_id != unroll->rule_table_id
-        || ctx->rule_cookie != unroll->rule_cookie
-        || ctx->conntracked) {
+    if (!unroll ||
+        (ctx->table_id != unroll->rule_table_id
+         || ctx->rule_cookie != unroll->rule_cookie)) {
 
         ctx->last_unroll_offset = ctx->action_set.size;
         unroll = ofpact_put_UNROLL_XLATE(&ctx->action_set);
         unroll->rule_table_id = ctx->table_id;
         unroll->rule_cookie = ctx->rule_cookie;
-        unroll->conntracked = ctx->conntracked;
     }
 }
 
@@ -4137,10 +4135,9 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
     put_connhelper(odp_actions, ofc);
     nl_msg_end_nested(odp_actions, ct_offset);
 
-    /* Use conn_* fields from datapath during recirculation upcall. */
-    ctx->conntracked = true;
-
     if (ofc->flags & NX_CT_F_RECIRC) {
+        /* Use conn_* fields from datapath during recirculation upcall. */
+        ctx->conntracked = true;
         compose_recirculate_action__(ctx, NULL, 0, 0, NULL);
     }
 }
@@ -4463,7 +4460,6 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             /* Restore translation context data that was stored earlier. */
             ctx->table_id = unroll->rule_table_id;
             ctx->rule_cookie = unroll->rule_cookie;
-            ctx->conntracked = unroll->conntracked;
             break;
         }
         case OFPACT_FIN_TIMEOUT:
@@ -4834,6 +4830,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     ctx.was_mpls = false;
     ctx.recirc_action_offset = -1;
     ctx.last_unroll_offset = -1;
+    ctx.conntracked = false;
 
     ctx.action_set_has_group = false;
     ofpbuf_use_stub(&ctx.action_set,
