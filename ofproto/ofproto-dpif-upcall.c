@@ -163,8 +163,6 @@ struct upcall {
     unsigned pmd_id;               /* Datapath poll mode driver id. */
     const struct dp_packet *packet;   /* Packet associated with this upcall. */
     ofp_port_t in_port;            /* OpenFlow in port, or OFPP_NONE. */
-    unsigned int  mru;             /* If !0, Maximum receive unit of
-                                      fragmented IP packet */
 
     enum dpif_upcall_type type;    /* Datapath type of the upcall. */
     const struct nlattr *userdata; /* Userdata for DPIF_UC_ACTION Upcalls. */
@@ -655,7 +653,6 @@ recv_upcalls(struct handler *handler)
         struct dpif_upcall *dupcall = &dupcalls[n_upcalls];
         struct upcall *upcall = &upcalls[n_upcalls];
         struct flow *flow = &flows[n_upcalls];
-        unsigned int mru;
         int error;
 
         ofpbuf_use_stub(recv_buf, recv_stubs[n_upcalls],
@@ -670,14 +667,8 @@ recv_upcalls(struct handler *handler)
             goto free_dupcall;
         }
 
-        if (dupcall->mru) {
-            mru = nl_attr_get_u16(dupcall->mru);
-        } else {
-            mru = 0;
-        }
-
         error = upcall_receive(upcall, udpif->backer, &dupcall->packet,
-                               dupcall->type, dupcall->userdata, flow, mru,
+                               dupcall->type, dupcall->userdata, flow,
                                &dupcall->ufid, PMD_ID_NULL);
         if (error) {
             if (error == ENODEV) {
@@ -937,7 +928,6 @@ upcall_receive(struct upcall *upcall, const struct dpif_backer *backer,
     upcall->ukey = NULL;
     upcall->key = NULL;
     upcall->key_len = 0;
-    upcall->mru = mru;
 
     upcall->out_tun_key = NULL;
 
@@ -1064,7 +1054,7 @@ upcall_cb(const struct dp_packet *packet, const struct flow *flow, ovs_u128 *ufi
     atomic_read_relaxed(&udpif->flow_limit, &flow_limit);
 
     error = upcall_receive(&upcall, udpif->backer, packet, type, userdata,
-                           flow, 0, ufid, pmd_id);
+                           flow, ufid, pmd_id);
     if (error) {
         return error;
     }
@@ -1267,7 +1257,6 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
             op->dop.u.execute.actions_len = upcall->xout.odp_actions->size;
             op->dop.u.execute.needs_help = (upcall->xout.slow & SLOW_ACTION) != 0;
             op->dop.u.execute.probe = false;
-            op->dop.u.execute.mru = upcall->mru;
         }
     }
 
