@@ -15,6 +15,8 @@
  */
 
 #include <config.h>
+#include <netinet/in.h>
+
 #include "ofp-actions.h"
 #include "bundle.h"
 #include "byte-order.h"
@@ -4388,7 +4390,7 @@ struct nx_action_conntrack {
     ovs_be16 flags;             /* Zero or more NX_CT_F_* flags.
                                  * Unspecified flag bits must be zero. */
     ovs_be16 zone;              /* Connection tracking context. */
-    ovs_be16 alg;               /* IANA-assigned port for the protocol.
+    ovs_be16 alg;               /* Well-known port number for the protocol.
                                  * 0 indicates no ALG is required. */
 };
 OFP_ASSERT(sizeof(struct nx_action_conntrack) == 16);
@@ -4454,14 +4456,22 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
 }
 
 static void
+format_alg(int port, struct ds *s)
+{
+    if (port == IPPORT_FTP) {
+        ds_put_format(s, "alg=ftp,");
+    } else if (port) {
+        ds_put_format(s, "alg=%d,", port);
+    }
+}
+
+static void
 format_CT(const struct ofpact_conntrack *a, struct ds *s)
 {
     ds_put_format(s, "ct(%s%s",
                   a->flags & NX_CT_F_COMMIT ? "commit," : "",
                   a->flags & NX_CT_F_RECIRC ? "recirc," : "");
-    if (a->alg) {
-        ds_put_format(s, "alg=%d,", a->alg);
-    }
+    format_alg(a->alg, s);
     ds_put_format(s, "zone=%"PRIu16")", a->zone);
 }
 
@@ -5832,8 +5842,9 @@ ofpacts_verify(const struct ofpact ofpacts[], size_t ofpacts_len,
         if (a->type == OFPACT_CONJUNCTION) {
             OFPACT_FOR_EACH (a, ofpacts, ofpacts_len) {
                 if (a->type != OFPACT_CONJUNCTION) {
-                    VLOG_WARN("when %s action is present, it must be the only "
-                              "kind of action used", ofpact_name(a->type));
+                    VLOG_WARN("when conjunction action is present, it must be "
+                              "the only kind of action used (saw '%s' action)",
+                              ofpact_name(a->type));
                     return OFPERR_NXBAC_BAD_CONJUNCTION;
                 }
             }

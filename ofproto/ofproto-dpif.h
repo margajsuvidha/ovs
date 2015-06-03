@@ -84,10 +84,17 @@ struct dpif_backer_support {
      * in a match */
     size_t max_mpls_depth;
 
-    /* True if the datapath supports the corresponding feature. */
+    /* True if the datapath supports masked data in OVS_ACTION_ATTR_SET
+     * actions. */
     bool masked_set_action;
+
+    /* True if the datapath supports recirculation. */
     bool recirc;
+
+    /* True if the datapath supports tnl_push and pop actions. */
     bool tnl_push_pop;
+
+    /* True if the datapath supports OVS_FLOW_ATTR_UFID. */
     bool ufid;
     bool conn_state;
     bool conn_zone;

@@ -1795,9 +1795,17 @@ ofputil_decode_flow_mod(struct ofputil_flow_mod *fm,
             fm->command = command & 0xff;
             fm->table_id = command >> 8;
         } else {
+            if (command > 0xff) {
+                VLOG_WARN_RL(&bad_ofmsg_rl, "flow_mod has explicit table_id "
+                             "but flow_mod_table_id extension is not enabled");
+            }
             fm->command = command;
             fm->table_id = 0xff;
         }
+    }
+
+    if (fm->command > OFPFC_DELETE_STRICT) {
+        return OFPERR_OFPFMFC_BAD_COMMAND;
     }
 
     error = ofpacts_pull_openflow_instructions(&b, b.size,
@@ -3468,7 +3476,7 @@ ofputil_packet_in_to_match(const struct ofputil_packet_in *pin,
         match_set_conn_mark(match, pin->fmd.conn_mark);
     }
 
-    if (ovs_u128_nonzero(pin->fmd.conn_label)) {
+    if (!is_all_zeros(&pin->fmd.conn_label, sizeof(pin->fmd.conn_label))) {
         match_set_conn_label(match, pin->fmd.conn_label);
     }
 
@@ -8394,7 +8402,7 @@ ofputil_decode_group_mod(const struct ofp_header *oh,
     switch (gm->type) {
     case OFPGT11_INDIRECT:
         if (!list_is_singleton(&gm->buckets)) {
-            return OFPERR_OFPGMFC_INVALID_GROUP;
+            return OFPERR_OFPGMFC_OUT_OF_BUCKETS;
         }
         break;
     case OFPGT11_ALL:
@@ -8871,7 +8879,8 @@ ofputil_is_bundlable(enum ofptype type)
 
 enum ofperr
 ofputil_decode_bundle_add(const struct ofp_header *oh,
-                          struct ofputil_bundle_add_msg *msg)
+                          struct ofputil_bundle_add_msg *msg,
+                          enum ofptype *type_ptr)
 {
     const struct ofp14_bundle_ctrl_msg *m;
     struct ofpbuf b;
@@ -8898,14 +8907,17 @@ ofputil_decode_bundle_add(const struct ofp_header *oh,
     }
 
     /* Reject unbundlable messages. */
-    error = ofptype_decode(&type, msg->msg);
+    if (!type_ptr) {
+        type_ptr = &type;
+    }
+    error = ofptype_decode(type_ptr, msg->msg);
     if (error) {
         VLOG_WARN_RL(&bad_ofmsg_rl, "OFPT14_BUNDLE_ADD_MESSAGE contained "
                      "message is unparsable (%s)", ofperr_get_name(error));
         return OFPERR_OFPBFC_MSG_UNSUP; /* 'error' would be confusing. */
     }
 
-    if (!ofputil_is_bundlable(type)) {
+    if (!ofputil_is_bundlable(*type_ptr)) {
         return OFPERR_OFPBFC_MSG_UNSUP;
     }
 
@@ -8919,7 +8931,9 @@ ofputil_encode_bundle_add(enum ofp_version ofp_version,
     struct ofpbuf *request;
     struct ofp14_bundle_ctrl_msg *m;
 
-    request = ofpraw_alloc(OFPRAW_OFPT14_BUNDLE_ADD_MESSAGE, ofp_version, 0);
+    /* Must use the same xid as the embedded message. */
+    request = ofpraw_alloc_xid(OFPRAW_OFPT14_BUNDLE_ADD_MESSAGE, ofp_version,
+                               msg->msg->xid, 0);
     m = ofpbuf_put_zeros(request, sizeof *m);
 
     m->bundle_id = htonl(msg->bundle_id);

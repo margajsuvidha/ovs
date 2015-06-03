@@ -973,10 +973,12 @@ static void
 format_conn_label_masked(struct ds *s, const ovs_u128 *key,
                          const ovs_u128 *mask)
 {
-    if (ovs_u128_nonzero(*mask)) {
-        ds_put_format(s, "conn_label="U128_FMT, U128_ARGS(key));
+    if (!is_all_zeros(mask, sizeof(*mask))) {
+        ds_put_format(s, "conn_label=");
+        ds_put_hex(s, key, sizeof(*key));
         if (!is_all_ones(mask, sizeof(*mask))) {
-            ds_put_format(s, "/"U128_FMT, U128_ARGS(mask));
+            ds_put_char(s, '/');
+            ds_put_hex(s, mask, sizeof(*mask));
         }
         ds_put_char(s, ',');
     }
@@ -1051,7 +1053,7 @@ match_format(const struct match *match, struct ds *s, int priority)
         format_uint32_masked(s, "conn_mark", f->conn_mark, wc->masks.conn_mark);
     }
 
-    if (ovs_u128_nonzero(wc->masks.conn_label)) {
+    if (!is_all_zeros(&wc->masks.conn_label, sizeof(wc->masks.conn_label))) {
         format_conn_label_masked(s, &f->conn_label, &wc->masks.conn_label);
     }
 

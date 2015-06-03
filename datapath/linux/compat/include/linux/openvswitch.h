@@ -348,12 +348,13 @@ enum ovs_key_attr {
 	OVS_KEY_ATTR_MPLS,      /* array of struct ovs_key_mpls.
 				 * The implementation may restrict
 				 * the accepted length of the array. */
-	OVS_KEY_ATTR_CONN_STATE,/* u8 of OVS_CS_F_* */
+	OVS_KEY_ATTR_CONN_STATE,/* u8 bitmask of OVS_CS_F_* */
 	OVS_KEY_ATTR_CONN_ZONE, /* u16 connection tracking zone. */
 	OVS_KEY_ATTR_CONN_MARK, /* u32 connection tracking mark */
 	OVS_KEY_ATTR_CONN_LABEL,/* 16-octet connection tracking label */
 
 #ifdef __KERNEL__
+	/* Only used within kernel data path. */
 	OVS_KEY_ATTR_TUNNEL_INFO,  /* struct ovs_tunnel_info */
 #endif
 	__OVS_KEY_ATTR_MAX
@@ -665,11 +666,11 @@ struct ovs_action_push_tnl {
  * enum ovs_ct_attr - Attributes for %OVS_ACTION_ATTR_CT action.
  * @OVS_CT_ATTR_FLAGS: u32 connection tracking flags.
  * @OVS_CT_ATTR_ZONE: u16 connection tracking zone.
- * XXX @OVS_CT_ATTR_HELPER
+ * @OVS_CT_ATTR_HELPER: variable length string defining conntrack ALG.
  */
 enum ovs_ct_attr {
 	OVS_CT_ATTR_UNSPEC,
-	OVS_CT_ATTR_FLAGS,      /* u8 of OVS_CT_F_*. */
+	OVS_CT_ATTR_FLAGS,      /* u8 bitmask of OVS_CT_F_*. */
 	OVS_CT_ATTR_ZONE,       /* u16 zone id. */
 	OVS_CT_ATTR_HELPER,
 	__OVS_CT_ATTR_MAX
@@ -723,6 +724,9 @@ enum ovs_ct_attr {
  * fields within a header are modifiable, e.g. the IPv4 protocol and fragment
  * type may not be changed.
  *
+ *
+ * @OVS_ACTION_ATTR_SET_TO_MASKED: Kernel internal masked set action translated
+ * from the @OVS_ACTION_ATTR_SET.
  * @OVS_ACTION_ATTR_TUNNEL_PUSH: Push tunnel header described by struct
  * ovs_action_push_tnl.
  * @OVS_ACTION_ATTR_TUNNEL_POP: Lookup tunnel port by port-no passed and pop
@@ -751,7 +755,14 @@ enum ovs_action_attr {
 	OVS_ACTION_ATTR_TUNNEL_PUSH,   /* struct ovs_action_push_tnl*/
 	OVS_ACTION_ATTR_TUNNEL_POP,    /* u32 port number. */
 #endif
-	__OVS_ACTION_ATTR_MAX
+	__OVS_ACTION_ATTR_MAX,	      /* Nothing past this will be accepted
+				       * from userspace. */
+
+#ifdef __KERNEL__
+	OVS_ACTION_ATTR_SET_TO_MASKED, /* Kernel module internal masked
+					* set action converted from
+					* OVS_ACTION_ATTR_SET. */
+#endif
 };
 
 #define OVS_ACTION_ATTR_MAX (__OVS_ACTION_ATTR_MAX - 1)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -168,8 +168,9 @@ ofp_print_packet_in(struct ds *string, const struct ofp_header *oh,
     if (pin.fmd.conn_mark != 0) {
         ds_put_format(string, " conn_mark=0x%"PRIx32, pin.fmd.conn_mark);
     }
-    if (ovs_u128_nonzero(pin.fmd.conn_label)) {
-        ds_put_format(string, " conn_label="U128_FMT, U128_ARGS(&pin.fmd.conn_label));
+    if (!is_all_zeros(&pin.fmd.conn_label, sizeof(pin.fmd.conn_label))) {
+        ds_put_format(string, " conn_label=");
+        ds_put_hex(string, &pin.fmd.conn_label, sizeof pin.fmd.conn_label);
     }
 
     ds_put_format(string, " (via %s)",
@@ -2671,7 +2672,7 @@ ofp_print_bundle_add(struct ds *s, const struct ofp_header *oh, int verbosity)
     struct ofputil_bundle_add_msg badd;
     char *msg;
 
-    error = ofputil_decode_bundle_add(oh, &badd);
+    error = ofputil_decode_bundle_add(oh, &badd, NULL);
     if (error) {
         ofp_print_error(s, error);
         return;

@@ -1817,25 +1817,26 @@ syntax_error:
 }
 
 static char *
-mf_from_u128_string(const struct mf_field *mf, const char *s,
+mf_from_u128_string(const struct mf_field *mf, const char *s_,
                     ovs_u128 *valuep, ovs_u128 *maskp)
 {
-    int n;
+    char *s = CONST_CAST(char *, s_);
 
     ovs_assert(mf->n_bytes == sizeof(*valuep));
 
-    n = -1;
-    if (ovs_scan(s, U128_SCAN_FMT"%n", U128_SCAN_ARGS(valuep), &n)
-        && n == strlen(s)) {
-        memset(maskp, 0xff, sizeof(*maskp));
-        return NULL;
-    }
-
-    n = -1;
-    if (ovs_scan(s, U128_SCAN_FMT"/"U128_SCAN_FMT"%n",
-                 U128_SCAN_ARGS(valuep), U128_SCAN_ARGS(maskp), &n)
-        && n == strlen(s)) {
-        return NULL;
+    if (!parse_int_string(s, (uint8_t *)valuep, sizeof(*valuep), &s)) {
+        if (strlen(s)) {
+            if (*s == '/'
+                && !parse_int_string(s + 1, (uint8_t *)maskp, sizeof(*maskp),
+                                     &s)) {
+                return NULL;
+            } else {
+                /* parse error */
+            }
+        } else {
+            memset(maskp, 0xff, sizeof(*maskp));
+            return NULL;
+        }
     }
 
     return xasprintf("%s: invalid u128 for %s", s, mf->name);
@@ -2385,11 +2386,14 @@ mf_format_conn_state_string(uint8_t value, uint8_t mask, struct ds *s)
 }
 
 static void
-mf_format_conn_label_string(ovs_u128 value, ovs_u128 *mask, struct ds *s)
+mf_format_conn_label_string(const ovs_u128 *value, const ovs_u128 *mask,
+                            struct ds *s)
 {
-    ds_put_format(s, "conn_label="U128_FMT, U128_ARGS(&value));
+    ds_put_format(s, "conn_label=");
+    ds_put_hex(s, value, sizeof(*value));
     if (mask) {
-        ds_put_format(s, "/"U128_FMT, U128_ARGS(mask));
+        ds_put_char(s, '/');
+        ds_put_hex(s, mask, sizeof(*mask));
     }
 }
 
@@ -2434,7 +2438,7 @@ mf_format(const struct mf_field *mf,
         break;
 
     case MFS_CONN_LABEL:
-        mf_format_conn_label_string(value->u128, (ovs_u128 *)mask, s);
+        mf_format_conn_label_string(&value->u128, (ovs_u128 *)mask, s);
         break;
 
     case MFS_ETHERNET:
@@ -2530,18 +2534,7 @@ mf_get_subfield(const struct mf_subfield *sf, const struct flow *flow)
 void
 mf_format_subvalue(const union mf_subvalue *subvalue, struct ds *s)
 {
-    int i;
-
-    for (i = 0; i < ARRAY_SIZE(subvalue->u8); i++) {
-        if (subvalue->u8[i]) {
-            ds_put_format(s, "0x%"PRIx8, subvalue->u8[i]);
-            for (i++; i < ARRAY_SIZE(subvalue->u8); i++) {
-                ds_put_format(s, "%02"PRIx8, subvalue->u8[i]);
-            }
-            return;
-        }
-    }
-    ds_put_char(s, '0');
+    ds_put_hex(s, subvalue->u8, sizeof subvalue->u8);
 }
 
 void

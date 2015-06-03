@@ -16,13 +16,13 @@ OVS needs a system with 1GB hugepages support.
 Building and Installing:
 ------------------------
 
-Required DPDK 1.8.0, `fuse`, `fuse-devel` (`libfuse-dev` on Debian/Ubuntu)
+Required DPDK 2.0, `fuse`, `fuse-devel` (`libfuse-dev` on Debian/Ubuntu)
 
 1. Configure build & install DPDK:
   1. Set `$DPDK_DIR`
 
      ```
-     export DPDK_DIR=/usr/src/dpdk-1.8.0
+     export DPDK_DIR=/usr/src/dpdk-2.0
      cd $DPDK_DIR
      ```
 
@@ -32,9 +32,12 @@ Required DPDK 1.8.0, `fuse`, `fuse-devel` (`libfuse-dev` on Debian/Ubuntu)
      `CONFIG_RTE_BUILD_COMBINE_LIBS=y`
 
      Update `config/common_linuxapp` so that DPDK is built with vhost
-     libraries:
+     libraries; currently, OVS only supports vhost-cuse, so DPDK vhost-user
+     libraries should be explicitly turned off (they are enabled by default
+     in DPDK 2.0).
 
      `CONFIG_RTE_LIBRTE_VHOST=y`
+     `CONFIG_RTE_LIBRTE_VHOST_USER=n`
 
      Then run `make install` to build and install the library.
      For default install without IVSHMEM:
@@ -65,9 +68,11 @@ Required DPDK 1.8.0, `fuse`, `fuse-devel` (`libfuse-dev` on Debian/Ubuntu)
    ```
    cd $(OVS_DIR)/openvswitch
    ./boot.sh
-   ./configure --with-dpdk=$DPDK_BUILD
+   ./configure --with-dpdk=$DPDK_BUILD [CFLAGS="-g -O2 -Wno-cast-align"]
    make
    ```
+
+   Note: 'clang' users may specify the '-Wno-cast-align' flag to suppress DPDK cast-align warnings.
 
 To have better performance one can enable aggressive compiler optimizations and
 use the special instructions(popcnt, crc32) that may not be available on all
@@ -182,6 +187,14 @@ Using the DPDK with ovs-vswitchd:
    polls dpdk device in continuous loop. Therefore CPU utilization
    for that thread is always 100%.
 
+   Note: creating bonds of DPDK interfaces is slightly different to creating
+   bonds of system interfaces.  For DPDK, the interface type must be explicitly
+   set, for example:
+
+   ```
+   ovs-vsctl add-bond br0 dpdkbond dpdk0 dpdk1 -- set Interface dpdk0 type=dpdk -- set Interface dpdk1 type=dpdk
+   ```
+
 7. Add test flows
 
    Test flow script across NICs (assuming ovs in /usr/src/ovs):
@@ -246,9 +259,6 @@ Using the DPDK with ovs-vswitchd:
 
    Note, the pmd threads on a numa node are only created if there is at least
    one DPDK interface from the numa node that has been added to OVS.
-
-   Note, core 0 is always reserved from non-pmd threads and should never be set
-   in the cpu mask.
 
    To understand where most of the time is spent and whether the caches are
    effective, these commands can be used:
@@ -546,6 +556,24 @@ steps in the previous section before proceeding with the following steps:
   the correct "vhostfd" value in the QEMU command line arguements.
 
   5. Use virt-manager to launch the VM
+
+Running ovs-vswitchd with DPDK backend inside a VM
+--------------------------------------------------
+
+Please note that additional configuration is required if you want to run
+ovs-vswitchd with DPDK backend inside a QEMU virtual machine. Ovs-vswitchd
+creates separate DPDK TX queues for each CPU core available. This operation
+fails inside QEMU virtual machine because, by default, VirtIO NIC provided
+to the guest is configured to support only single TX queue and single RX
+queue. To change this behavior, you need to turn on 'mq' (multiqueue)
+property of all virtio-net-pci devices emulated by QEMU and used by DPDK.
+You may do it manually (by changing QEMU command line) or, if you use Libvirt,
+by adding the following string:
+
+`<driver name='vhost' queues='N'/>`
+
+to <interface> sections of all network devices used by DPDK. Parameter 'N'
+determines how many queues can be used by the guest.
 
 Restrictions:
 -------------

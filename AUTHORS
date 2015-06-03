@@ -24,6 +24,7 @@ Arun Sharma             arun.sharma@calsoftinc.com
 Aryan TaheriMonfared    aryan.taherimonfared@uis.no
 Ashwin Swaminathan      ashwinds@arista.com
 Ben Pfaff               blp@nicira.com
+Billy O'Mahony          billy.o.mahony@intel.com
 Brian Kruger            bkruger+ovsdev@gmail.com
 Bruce Davie             bsd@nicira.com
 Bryan Phillippe         bp@toroki.com
@@ -34,6 +35,7 @@ Chuck Short             zulcss@ubuntu.com
 Cong Wang               amwang@redhat.com
 Damien Millescamps      damien.millescamps@6wind.com
 Dan Carpenter           dan.carpenter@oracle.com
+Dan McGregor            dan.mcgregor@usask.ca
 Dan Wendlandt           dan@nicira.com
 Daniel Borkmann         dborkman@redhat.com
 Daniel Hiltgen          daniel@netkine.com
@@ -211,6 +213,7 @@ Anuprem Chalvadi        achalvadi@vmware.com
 Ariel Tubaltsev         atubaltsev@vmware.com
 Arkajit Ghosh           arkajit.ghosh@tcs.com
 Atzm Watanabe           atzm@stratosphere.co.jp
+Aurélien Poulain       aurepoulain@viacesi.fr
 Bastian Blank           waldi@debian.org
 Ben Basler              bbasler@nicira.com
 Bob Ball                bob.ball@citrix.com
@@ -302,6 +305,7 @@ Mike Bursell            mike.bursell@citrix.com
 Mike Kruze              mkruze@nicira.com
 Min Chen                ustcer.tonychan@gmail.com
 Mikael Doverhag         mdoverhag@nicira.com
+Mrinmoy Das             mrdas@ixiacom.com
 Nagi Reddy Jonnala      njonnala@Brocade.com
 Niels van Adrichem      N.L.M.vanAdrichem@tudelft.nl
 Niklas Andersson        nandersson@nicira.com
@@ -336,6 +340,7 @@ Sridhar Samudrala       samudrala.sridhar@gmail.com
 Srini Seetharaman       seethara@stanford.edu
 Sabyasachi Sengupta     Sabyasachi.Sengupta@alcatel-lucent.com
 Salvatore Cambria       salvatore.cambria@citrix.com
+Soner Sevinc            sevincs@vmware.com
 Stephen Hemminger       shemminger@vyatta.com
 Suganya Ramachandran    suganyar@vmware.com
 Takayuki HAMA           t-hama@cb.jp.nec.com
@@ -362,6 +367,7 @@ likunyun                kunyunli@hotmail.com
 rahim entezari          rahim.entezari@gmail.com
 冯全树(Crab)            fqs888@126.com
 胡靖飞                  hujingfei914@msn.com
+张伟                     zhangwqh@126.com
 
 Thanks to all Open vSwitch contributors.  If you are not listed above
 but believe that you should be, please write to dev@openvswitch.org.

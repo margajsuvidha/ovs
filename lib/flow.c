@@ -477,14 +477,14 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
         miniflow_push_uint8(mf, conn_state, md->conn_state);
         miniflow_pad_to_64(mf, pad1);
     }
-    if (ovs_u128_nonzero(md->conn_label)) {
+    if (!is_all_zeros(&md->conn_label, sizeof md->conn_label)) {
         miniflow_push_words(mf, conn_label, &md->conn_label,
                             sizeof md->conn_label / 8);
     }
 
     /* Initialize packet's layer pointer and offsets. */
     l2 = data;
-    dp_packet_set_frame(packet, data);
+    dp_packet_reset_offsets(packet);
 
     /* Must have full Ethernet header to proceed. */
     if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {

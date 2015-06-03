@@ -314,6 +314,9 @@ bool str_to_double(const char *, double *);
 int hexit_value(int c);
 uintmax_t hexits_value(const char *s, size_t n, bool *ok);
 
+int parse_int_string(const char *s, uint8_t *valuep, int field_width,
+                     char **tail);
+
 const char *english_list_delimiter(size_t index, size_t total);
 
 char *get_cwd(void);
@@ -548,24 +551,14 @@ void bitwise_put(uint64_t value,
 uint64_t bitwise_get(const void *src, unsigned int src_len,
                      unsigned int src_ofs, unsigned int n_bits);
 
-void xsleep(unsigned int seconds);
-
-#define U128_FMT                 "%016"PRIx64"%016"PRIx64
-#define U128_ARGS(cl)            (cl)->u64.hi, (cl)->u64.lo
-#define U128_SCAN_FMT            "%016"SCNx64"%016"SCNx64
-#define U128_SCAN_ARGS(cl)       &(cl)->u64.hi, &(cl)->u64.lo
-
 /* Returns non-zero if the parameters have equal value. */
 static inline int
-ovs_u128_equal(const ovs_u128 *a, const ovs_u128 *b)
+ovs_u128_equals(const ovs_u128 *a, const ovs_u128 *b)
 {
     return (a->u64.hi == b->u64.hi) && (a->u64.lo == b->u64.lo);
 }
 
-static inline int ovs_u128_nonzero(ovs_u128 a)
-{
-    return !is_all_zeros(&a, sizeof(a));
-}
+void xsleep(unsigned int seconds);
 
 #ifdef _WIN32
 

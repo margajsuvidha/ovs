@@ -93,7 +93,6 @@ struct datapath {
 #endif
 
 	u32 user_features;
-
 	struct ovs_ct_perdp_data ct;
 };
 

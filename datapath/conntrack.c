@@ -64,7 +64,7 @@ static struct net *ovs_get_net(const struct sk_buff *skb)
 }
 
 /* Map SKB connection state into the values used by flow definition. */
-static u8 ovs_ct_get_state__(enum ip_conntrack_info ctinfo)
+static u8 __ovs_ct_get_state(enum ip_conntrack_info ctinfo)
 {
 	u8 cstate = OVS_CS_F_TRACKED;
 
@@ -104,7 +104,7 @@ u8 ovs_ct_get_state(const struct sk_buff *skb)
 
 	if (!nf_ct_get(skb, &ctinfo))
 		return 0;
-	return ovs_ct_get_state__(ctinfo);
+	return __ovs_ct_get_state(ctinfo);
 }
 
 u16 ovs_ct_get_zone(const struct sk_buff *skb)
@@ -150,14 +150,14 @@ void ovs_ct_get_label(const struct sk_buff *skb,
 	}
 }
 
-static bool ovs_ct_state_valid__(u8 state)
+static bool __ovs_ct_state_valid(u8 state)
 {
 	return (state && !(state & OVS_CS_F_INVALID));
 }
 
 bool ovs_ct_state_valid(const struct sw_flow_key *key)
 {
-	return ovs_ct_state_valid__(key->conn.state);
+	return __ovs_ct_state_valid(key->conn.state);
 }
 
 /* 'skb' should already be pulled to nh_ofs. */
@@ -244,7 +244,36 @@ static bool skb_nfct_cached(const struct net *net, const struct sk_buff *skb,
 	return true;
 }
 
-static int ovs_ct_lookup__(struct net *net, const struct sw_flow_key *key,
+static void __ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
+				u8 state, u16 zone)
+{
+	key->conn.state = state;
+	key->conn.zone = zone;
+	key->conn.mark = ovs_ct_get_mark(skb);
+	ovs_ct_get_label(skb, &key->conn.label);
+}
+
+static void ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
+			      u16 zone)
+{
+	enum ip_conntrack_info ctinfo;
+	struct nf_conn *ct;
+	u8 state;
+
+	ct = nf_ct_get(skb, &ctinfo);
+	if (ct) {
+		state = __ovs_ct_get_state(ctinfo);
+		zone = nf_ct_zone(ct);
+		if (ct->master)
+			state |= OVS_CS_F_RELATED;
+	} else {
+		state = OVS_CS_F_TRACKED | OVS_CS_F_INVALID;
+	}
+
+	__ovs_ct_update_key(skb, key, state, zone);
+}
+
+static int __ovs_ct_lookup(struct net *net, const struct sw_flow_key *key,
 			   const struct ovs_conntrack_info *info,
 			   struct sk_buff *skb)
 {
@@ -275,35 +304,6 @@ static int ovs_ct_lookup__(struct net *net, const struct sw_flow_key *key,
 	return 0;
 }
 
-static void __ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
-				u8 state, u16 zone)
-{
-	key->conn.state = state;
-	key->conn.zone = zone;
-	key->conn.mark = ovs_ct_get_mark(skb);
-	ovs_ct_get_label(skb, &key->conn.label);
-}
-
-static void ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
-			      u16 zone)
-{
-	enum ip_conntrack_info ctinfo;
-	struct nf_conn *ct;
-	u8 state;
-
-	ct = nf_ct_get(skb, &ctinfo);
-	if (ct) {
-		state = ovs_ct_get_state__(ctinfo);
-		zone = nf_ct_zone(ct);
-		if (ct->master)
-			state |= OVS_CS_F_RELATED;
-	} else {
-		state = OVS_CS_F_TRACKED | OVS_CS_F_INVALID;
-	}
-
-	__ovs_ct_update_key(skb, key, state, zone);
-}
-
 /* Lookup connection and read fields into key. */
 static int ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 			 const struct ovs_conntrack_info *info,
@@ -320,7 +320,7 @@ static int ovs_ct_lookup(struct net *net, struct sw_flow_key *key,
 	} else {
 		int err;
 
-		err = ovs_ct_lookup__(net, key, info, skb);
+		err = __ovs_ct_lookup(net, key, info, skb);
 		if (err)
 			return err;
 
@@ -346,7 +346,7 @@ static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 		return 0;
 	}
 
-	err = ovs_ct_lookup__(net, key, info, skb);
+	err = __ovs_ct_lookup(net, key, info, skb);
 	if (err)
 		return err;
 	if (nf_conntrack_confirm(skb) != NF_ACCEPT)
@@ -557,6 +557,7 @@ int ovs_ct_copy_action(struct net *net, const struct nlattr *attr,
 		       struct sw_flow_actions **sfa,  bool log)
 {
 	struct ovs_conntrack_info ct_info;
+	struct nf_conntrack_tuple t;
 	const char *helper = NULL;
 	u16 family;
 	int err;
@@ -572,20 +573,18 @@ int ovs_ct_copy_action(struct net *net, const struct nlattr *attr,
 	if (err)
 		return err;
 
-	if (ct_info.zone || helper) {
-		struct nf_conntrack_tuple t;
-
-		memset(&t, 0, sizeof(t));
-		ct_info.ct = nf_conntrack_alloc(net, ct_info.zone, &t, &t,
-						GFP_KERNEL);
-		if (IS_ERR(ct_info.ct))
-			return PTR_ERR(ct_info.ct);
-		if (helper) {
-			err = ovs_ct_add_helper(&ct_info, helper, key, log);
-			if (err)
-				goto err_free_ct;
-		}
-		nf_conntrack_tmpl_insert(net, ct_info.ct);
+	/* Set up template for tracking connections in specific zones. */
+	memset(&t, 0, sizeof(t));
+	ct_info.ct = nf_conntrack_alloc(net, ct_info.zone, &t, &t,
+					GFP_KERNEL);
+	if (IS_ERR(ct_info.ct)) {
+		OVS_NLERR(log, "Failed to allocate conntrack template");
+		return PTR_ERR(ct_info.ct);
+	}
+	if (helper) {
+		err = ovs_ct_add_helper(&ct_info, helper, key, log);
+		if (err)
+			goto err_free_ct;
 	}
 
 	err = ovs_nla_add_action(sfa, OVS_ACTION_ATTR_CT, &ct_info,
@@ -593,6 +592,7 @@ int ovs_ct_copy_action(struct net *net, const struct nlattr *attr,
 	if (err)
 		goto err_free_ct;
 
+	nf_conntrack_tmpl_insert(net, ct_info.ct);
 	return 0;
 err_free_ct:
 	nf_conntrack_free(ct_info.ct);

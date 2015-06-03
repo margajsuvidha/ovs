@@ -562,7 +562,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: conn state.
      * Prerequisites: none.
      * Access: read-only.
-     * NXM: NXM_NX_CONN_STATE(37) since v2.4.
+     * NXM: NXM_NX_CONN_STATE(40) since v2.4.
      * OXM: none.
      */
     MFF_CONN_STATE,
@@ -577,7 +577,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: hexadecimal.
      * Prerequisites: none.
      * Access: read-only.
-     * NXM: NXM_NX_CONN_ZONE(40) since v2.4.
+     * NXM: NXM_NX_CONN_ZONE(41) since v2.4.
      * OXM: none.
      */
     MFF_CONN_ZONE,
@@ -594,7 +594,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: hexadecimal.
      * Prerequisites: none.
      * Access: read/write.
-     * NXM: NXM_NX_CONN_MARK(41) since v2.4.
+     * NXM: NXM_NX_CONN_MARK(42) since v2.4.
      * OXM: none.
      */
     MFF_CONN_MARK,
@@ -611,7 +611,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: conn label.
      * Prerequisites: none.
      * Access: read/write.
-     * NXM: NXM_NX_CONN_LABEL(42) since v2.4.
+     * NXM: NXM_NX_CONN_LABEL(43) since v2.4.
      * OXM: none.
      */
     MFF_CONN_LABEL,

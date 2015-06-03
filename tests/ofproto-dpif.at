@@ -4155,7 +4155,7 @@ in_port=2 actions=output:1
 ])
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
-odp_flow="in_port(1)"
+odp_flow="in_port(p1)"
 br_flow="in_port=1"
 # Test command: ofproto/trace odp_flow with in_port as a name.
 AT_CHECK([ovs-appctl ofproto/trace "$odp_flow"], [0], [stdout])
@@ -4397,6 +4397,54 @@ AT_CHECK([ovs-appctl ofproto/trace ], [2], [stdout],[stderr])
 AT_CHECK([tail -2 stderr], [0], [dnl
 "ofproto/trace" command requires at least 1 arguments
 ovs-appctl: ovs-vswitchd: server returned an error
+])
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+# The third test checks that the output of "ovs-dpctl -m" is valid to trace.
+AT_SETUP([ofproto-dpif - ofproto/trace from dpctl output])
+OVS_VSWITCHD_START([dnl
+    set Open_vSwitch . other_config:max-idle=10000 \
+    -- add-port br0 p1 -- set Interface p1 type=dummy])
+
+AT_CHECK([ovs-appctl netdev-dummy/receive p1 'in_port(1),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=1,tos=0,ttl=64,frag=no),icmp(type=8,code=0)'])
+ovs-appctl revalidator/wait
+AT_CHECK([ovs-appctl dpif/dump-flows -m br0 | sed 's/, packets.*$//' > dp_flows1.txt])
+
+odp_flow=`cat dp_flows1.txt`
+AT_CHECK([ovs-appctl ofproto/trace "$odp_flow" | sed 's/\([[Ff]]low:\).*/\1 <cleared>/'], [0], [dnl
+Bridge: br0
+Flow: <cleared>
+No match, packets dropped because OFPPC_NO_PACKET_IN is set on in_port.
+
+Rule: table=254 cookie=0 priority=0,reg0=0x2
+OpenFlow actions=drop
+
+Final flow: <cleared>
+Megaflow: <cleared>
+Datapath actions: drop
+])
+
+dnl Now, try again without megaflows:
+ovs-appctl upcall/disable-megaflows
+
+AT_CHECK([ovs-appctl netdev-dummy/receive p1 'in_port(1),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=1,tos=0,ttl=64,frag=no),icmp(type=8,code=0)'])
+ovs-appctl revalidator/wait
+AT_CHECK([ovs-appctl dpif/dump-flows -m br0 | sed 's/, packets.*$//' > dp_flows2.txt])
+
+odp_flow=`cat dp_flows2.txt`
+AT_CHECK([ovs-appctl ofproto/trace "$odp_flow" | sed 's/\([[Ff]]low:\).*/\1 <cleared>/'], [0], [dnl
+Bridge: br0
+Flow: <cleared>
+No match, packets dropped because OFPPC_NO_PACKET_IN is set on in_port.
+
+Rule: table=254 cookie=0 priority=0,reg0=0x2
+OpenFlow actions=drop
+
+Final flow: <cleared>
+Megaflow: <cleared>
+Datapath actions: drop
 ])
 
 OVS_VSWITCHD_STOP
@@ -5412,7 +5460,7 @@ AT_CHECK([ovs-appctl netdev-dummy/receive p1 'in_port(1),eth(src=50:54:00:00:00:
 ovs-appctl revalidator/wait
 AT_CHECK([ovs-appctl dpif/dump-flows -m br0], [0], [stdout])
 
-UFID=`sed -n 's/\(ufid:[[0-9a-fA-F]]*\).*/\1/p' stdout`
+UFID=`sed -n 's/\(ufid:[[-0-9a-fA-F]]*\).*/\1/p' stdout`
 AT_CHECK([ovs-appctl dpctl/get-flow $UFID], [0], [dnl
 recirc_id(0),in_port(1),eth_type(0x0800),ipv4(frag=no), packets:0, bytes:0, used:never, actions:drop
 ])
@@ -6142,8 +6190,8 @@ for i in 1 2 3 4; do
 done
 sleep 1
 AT_CHECK([cat ovs-vswitchd.log | STRIP_UFID | FILTER_FLOW_INSTALL | STRIP_USED], [0], [dnl
-pkt_mark=0,recirc_id=0,dp_hash=0,skb_priority=0,conn_state=0,conn_zone=0,conn_mark=0,conn_label=00000000000000000000000000000000,icmp,in_port=1,vlan_tci=0x0000,dl_src=50:54:00:00:00:09,dl_dst=50:54:00:00:00:0a,nw_src=10.0.0.2,nw_dst=10.0.0.1,nw_tos=0,nw_ecn=0,nw_ttl=64,icmp_type=8,icmp_code=0, actions:2
-pkt_mark=0,recirc_id=0,dp_hash=0,skb_priority=0,conn_state=0,conn_zone=0,conn_mark=0,conn_label=00000000000000000000000000000000,icmp,in_port=1,vlan_tci=0x0000,dl_src=50:54:00:00:00:0b,dl_dst=50:54:00:00:00:0c,nw_src=10.0.0.4,nw_dst=10.0.0.3,nw_tos=0,nw_ecn=0,nw_ttl=64,icmp_type=8,icmp_code=0, actions:drop
+pkt_mark=0,recirc_id=0,dp_hash=0,skb_priority=0,conn_state=0,conn_zone=0,conn_mark=0,conn_label=0,icmp,in_port=1,vlan_tci=0x0000,dl_src=50:54:00:00:00:09,dl_dst=50:54:00:00:00:0a,nw_src=10.0.0.2,nw_dst=10.0.0.1,nw_tos=0,nw_ecn=0,nw_ttl=64,icmp_type=8,icmp_code=0, actions:2
+pkt_mark=0,recirc_id=0,dp_hash=0,skb_priority=0,conn_state=0,conn_zone=0,conn_mark=0,conn_label=0,icmp,in_port=1,vlan_tci=0x0000,dl_src=50:54:00:00:00:0b,dl_dst=50:54:00:00:00:0c,nw_src=10.0.0.4,nw_dst=10.0.0.3,nw_tos=0,nw_ecn=0,nw_ttl=64,icmp_type=8,icmp_code=0, actions:drop
 ])
 AT_CHECK([cat ovs-vswitchd.log | STRIP_UFID | FILTER_FLOW_DUMP | grep 'packets:3'], [0], [dnl
 skb_priority(0),skb_mark(0),recirc_id(0),dp_hash(0),in_port(1),eth(src=50:54:00:00:00:09,dst=50:54:00:00:00:0a),eth_type(0x0800),ipv4(src=10.0.0.2,dst=10.0.0.1,proto=1,tos=0,ttl=64,frag=no),icmp(type=8,code=0), packets:3, bytes:180, used:0.0s, actions:2

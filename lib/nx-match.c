@@ -1018,7 +1018,8 @@ nx_put_raw(struct ofpbuf *b, enum ofp_version oxm, const struct match *match,
         nxm_put_32m(b, MFF_CONN_MARK, oxm, htonl(flow->conn_mark),
                     htonl(match->wc.masks.conn_mark));
     }
-    if (ovs_u128_nonzero(match->wc.masks.conn_label)) {
+    if (!is_all_zeros(&match->wc.masks.conn_label,
+                      sizeof(match->wc.masks.conn_label))) {
         nxm_put_conn_label(b, MFF_CONN_LABEL, oxm, flow->conn_label,
                            match->wc.masks.conn_label);
     }
