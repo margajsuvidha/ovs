@@ -2724,6 +2724,7 @@ clear_conntrack(struct flow *flow)
     flow->conn_state = 0;
     flow->conn_zone = 0;
     flow->conn_mark = 0;
+    memset(&flow->conn_label, 0, sizeof flow->conn_label);
 }
 
 static void
@@ -2738,6 +2739,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     uint32_t flow_pkt_mark, flow_conn_mark;
     uint8_t flow_conn_state;
     uint16_t flow_conn_zone;
+    ovs_u128 flow_conn_label;
     uint8_t flow_nw_tos;
     odp_port_t out_port, odp_port;
     bool tnl_push_pop_send = false;
@@ -2745,7 +2747,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
 
     /* If 'struct flow' gets additional metadata, we'll need to zero it out
      * before traversing a patch port. */
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 32);
     memset(&flow_tnl, 0, sizeof flow_tnl);
 
     if (!xport) {
@@ -2890,6 +2892,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     flow_pkt_mark = flow->pkt_mark;
     flow_conn_state = flow->conn_state;
     flow_conn_zone = flow->conn_zone;
+    flow_conn_label = flow->conn_label;
     flow_nw_tos = flow->nw_tos;
     flow_conn_mark = flow->conn_mark;
 
@@ -3013,6 +3016,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     flow->conn_state = flow_conn_state;
     flow->conn_zone = flow_conn_zone;
     flow->conn_mark = flow_conn_mark;
+    flow->conn_label = flow_conn_label;
     flow->nw_tos = flow_nw_tos;
 }
 
