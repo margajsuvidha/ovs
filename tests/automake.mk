@@ -1,9 +1,12 @@
 EXTRA_DIST += \
 	$(COMMON_MACROS_AT) \
 	$(TESTSUITE_AT) \
+	$(TRAFFIC_TESTSUITE_AT) \
 	$(KMOD_TESTSUITE_AT) \
+	$(USERSPACE_TESTSUITE_AT) \
 	$(TESTSUITE) \
 	$(KMOD_TESTSUITE) \
+	$(USERSPACE_TESTSUITE) \
 	tests/atlocal.in \
 	$(srcdir)/package.m4 \
 	$(srcdir)/tests/testsuite \
@@ -87,12 +90,19 @@ TESTSUITE_AT = \
 
 KMOD_TESTSUITE_AT = \
 	tests/kmod-testsuite.at \
-	tests/kmod-macros.at \
+	tests/kmod-macros.at
+
+USERSPACE_TESTSUITE_AT = \
+	tests/userspace-testsuite.at \
+	tests/userspace-macros.at
+
+TRAFFIC_TESTSUITE_AT = \
 	tests/traffic.at
 
 TESTSUITE = $(srcdir)/tests/testsuite
 TESTSUITE_PATCH = $(srcdir)/tests/testsuite.patch
 KMOD_TESTSUITE = $(srcdir)/tests/kmod-testsuite
+USERSPACE_TESTSUITE = $(srcdir)/tests/userspace-testsuite
 DISTCLEANFILES += tests/atconfig tests/atlocal
 
 AUTOTEST_PATH = utilities:vswitchd:ovsdb:vtep:tests:$(PTHREAD_WIN32_DIR_DLL)
@@ -197,6 +207,9 @@ check-kmod: all tests/atconfig tests/atlocal $(KMOD_TESTSUITE)
 	modprobe -r openvswitch
 	$(MAKE) check-kernel
 
+check-userspace: all tests/atconfig tests/atlocal $(USERSPACE_TESTSUITE)
+	$(SHELL) '$(USERSPACE_TESTSUITE)' -C tests  AUTOTEST_PATH='$(AUTOTEST_PATH)' $(TESTSUITEFLAGS)
+
 clean-local:
 	test ! -f '$(TESTSUITE)' || $(SHELL) '$(TESTSUITE)' -C tests --clean
 
@@ -213,7 +226,11 @@ $(TESTSUITE): package.m4 $(TESTSUITE_AT) $(COMMON_MACROS_AT)
 	$(AM_V_at)mv $@.tmp $@
 endif
 
-$(KMOD_TESTSUITE): package.m4 $(KMOD_TESTSUITE_AT) $(COMMON_MACROS_AT)
+$(KMOD_TESTSUITE): package.m4 $(TRAFFIC_TESTSUITE_AT) $(KMOD_TESTSUITE_AT) $(COMMON_MACROS_AT)
+	$(AM_V_GEN)$(AUTOTEST) -I '$(srcdir)' -o $@.tmp $@.at
+	$(AM_V_at)mv $@.tmp $@
+
+$(USERSPACE_TESTSUITE): package.m4 $(TRAFFIC_TESTSUITE_AT) $(USERSPACE_TESTSUITE_AT) $(COMMON_MACROS_AT)
 	$(AM_V_GEN)$(AUTOTEST) -I '$(srcdir)' -o $@.tmp $@.at
 	$(AM_V_at)mv $@.tmp $@
 
