@@ -50,7 +50,7 @@ def main():
     if ftpd is not None:
         SERVERS['ftp'] = ftpd
 
-    protocols = [srv[0] for srv in SERVERS]
+    protocols = [srv for srv in SERVERS]
     parser = argparse.ArgumentParser(
             description='Run basic application servers.')
     parser.add_argument('proto', default='http', nargs='?',
