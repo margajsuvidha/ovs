@@ -1,6 +1,8 @@
-AT_BANNER([kmod-traffic])
+m4_define([FORMAT_CT], [[grep "dst=$1" | sed -e 's/port=[0-9]*/port=<cleared>/g' -e 's/  */ /g' | cut -d' ' -f4- | sort | uniq]])
 
-AT_SETUP([kmod - ping between two ports])
+AT_BANNER([traffic])
+
+AT_SETUP([traffic - ping between two ports])
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
 
@@ -88,7 +90,7 @@ dnl HTTP requests from ns0->ns1 should work fine.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2)], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=1
 ])
 
@@ -254,7 +256,7 @@ dnl HTTP requests from p0->p1 should work fine.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2)], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 zone=1 use=1
 ])
 
@@ -263,7 +265,7 @@ dnl Try 3 times, in 1 second intervals.
 NETNS_DAEMONIZE([at_ns3], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack1.pid])
 AT_CHECK([ip netns exec at_ns2 wget 10.1.1.4 -t 3 -T 1 -v -o wget1.log], [4])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.4)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.4)], [dnl
 SYN_RECV src=10.1.1.3 dst=10.1.1.4 sport=<cleared> dport=<cleared> src=10.1.1.4 dst=10.1.1.3 sport=<cleared> dport=<cleared> mark=0 zone=2 use=1
 ])
 
@@ -274,7 +276,7 @@ AT_SETUP([conntrack - multiple bridges])
 CONNTRACK()
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone --\
-    add-br br1 --\
+    ADD_BR(br1) --\
     add-port br0 patch+ -- set int patch+ type=patch options:peer=patch- --\
     add-port br1 patch- -- set int patch- type=patch options:peer=patch+ --])
 
@@ -347,7 +349,7 @@ dnl (again) HTTP requests from p0->p1 should work fine.
 dnl NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 dnl AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2)], [dnl
 SYN_SENT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> [[UNREPLIED]] src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> mark=0 zone=1 use=1
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 zone=2 use=1
 ])
@@ -386,7 +388,7 @@ dnl HTTP requests from p0->p1 should work fine.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep TIME], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep TIME], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=1 use=1
 ])
 
@@ -395,7 +397,7 @@ dnl Try 3 times, in 1 second intervals.
 NETNS_DAEMONIZE([at_ns3], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack1.pid])
 AT_CHECK([ip netns exec at_ns2 wget 10.1.1.4 -t 3 -T 1 -v -o wget1.log], [4])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.4)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.4)], [dnl
 SYN_RECV src=10.1.1.3 dst=10.1.1.4 sport=<cleared> dport=<cleared> src=10.1.1.4 dst=10.1.1.3 sport=<cleared> dport=<cleared> mark=2 use=1
 ])
 
@@ -428,7 +430,7 @@ dnl HTTP requests from p0->p1 should work fine, even if we output before changin
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep TIME], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep TIME], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=1 use=1
 ])
 
@@ -500,11 +502,13 @@ dnl UDP packets from ns0->ns1 should solicit "destination unreachable" response.
 AT_CHECK([ip netns exec at_ns0 bash -c "echo a | nc -u 10.1.1.2 10000"])
 
 AT_CHECK([ovs-appctl revalidator/purge], [0])
-AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop], [0], [dnl
- n_packets=1, n_bytes=44, udp,in_port=1 actions=ct(commit,zone=0),load:0x1->NXM_NX_CT_MARK[[]],output:2
- n_packets=1, n_bytes=72, ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
- n_packets=1, n_bytes=72, ct_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
- n_packets=2, n_bytes=84, priority=10,arp actions=NORMAL
+dnl Not checking n_bytes, because the userspace datapath may add padding to
+dnl some smaller packets.
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop | sed -e 's/n_bytes=[[0-9]]*/n_bytes=<cleared>/g'], [0], [dnl
+ n_packets=1, n_bytes=<cleared>, udp,in_port=1 actions=ct(commit,zone=0),load:0x1->NXM_NX_CT_MARK[[]],output:2
+ n_packets=1, n_bytes=<cleared>, ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
+ n_packets=1, n_bytes=<cleared>, ct_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
+ n_packets=2, n_bytes=<cleared>, priority=10,arp actions=NORMAL
 NXST_FLOW reply:
 ])
 
@@ -514,6 +518,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CONNTRACK()
+CONNTRACK_TOOL()
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
 
@@ -555,12 +560,12 @@ NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py ftp]], [test-connt
 dnl FTP requests from p1->p0 should fail due to network failure.
 dnl Try 3 times, in 1 second intervals.
 AT_CHECK([ip netns exec at_ns1 wget ftp://10.1.1.1 --no-passive-ftp  -t 3 -T 1 -v -o wget1.log], [4])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.1)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.1)], [dnl
 ])
 
 dnl FTP requests from p0->p1 should work fine.
 AT_CHECK([ip netns exec at_ns0 wget ftp://10.1.1.2 --no-passive-ftp -t 3 -T 1 --retry-connrefused -v -o wget0.log])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep -v "FIN"], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep -v "FIN"], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 helper=ftp use=1
 ])
 
@@ -572,14 +577,59 @@ AT_CHECK([ovs-ofctl add-flows br0 flows2.txt])
 dnl FTP requests from p1->p0 should fail due to network failure.
 dnl Try 3 times, in 1 second intervals.
 AT_CHECK([ip netns exec at_ns1 wget ftp://10.1.1.1 --no-passive-ftp  -t 3 -T 1 -v -o wget1.log], [4])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.1)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.1)], [dnl
 ])
 
 dnl FTP requests from p0->p1 should work fine.
 AT_CHECK([ip netns exec at_ns0 wget ftp://10.1.1.2 --no-passive-ftp -t 3 -T 1 --retry-connrefused -v -o wget0.log])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep -v "FIN"], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep -v "FIN"], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 helper=ftp use=2
 TIME_WAIT src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=1
+])
+
+OVS_KMOD_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([conntrack - ICMP related v2])
+CONNTRACK()
+OVS_KMOD_VSWITCHD_START(
+   [set-fail-mode br0 standalone -- ])
+
+ADD_NAMESPACES(at_ns0, at_ns1)
+
+ADD_VETH(p0, at_ns0, br0, "172.16.0.1/24")
+ADD_VETH(p1, at_ns1, br0, "172.16.0.2/24")
+
+dnl Allow any traffic from ns0->ns1. Only allow nd, return traffic from ns1->ns0.
+AT_DATA([flows.txt], [dnl
+priority=1,action=drop
+priority=10,arp,action=normal
+in_port=1,ct_state=-trk,udp,action=ct(commit,zone=0,recirc)
+in_port=1,ct_state=+trk,actions=controller
+in_port=2,ct_state=-trk,action=ct(recirc,zone=0)
+in_port=2,ct_state=+trk-inv-new,action=controller
+])
+
+AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
+
+AT_CAPTURE_FILE([ofctl_monitor.log])
+AT_CHECK([ovs-ofctl monitor br0 65534 invalid_ttl --detach --no-chdir --pidfile 2> ofctl_monitor.log])
+
+dnl 1. Send an ICMP port unreach reply for port 8738, without any previous request
+AT_CHECK([ovs-ofctl -O OpenFlow13 packet-out br0 2 ct\(recirc,zone=0\) 'f64c473528c9c6f54ecb72db080045c0003d2e8700004001f355ac100004ac1000030303553f0000000045000021317040004011b138ac100003ac10000411112222000d20966369616f0a'])
+
+dnl 2. Send and UDP packet to port 5555
+AT_CHECK([ovs-ofctl -O OpenFlow13 packet-out br0 1 ct\(commit,zone=0,recirc\) 'c6f94ecb72dbe64c473528c9080045000021317040004011b138ac100001ac100002a28e15b3000d20966369616f0a'])
+
+dnl 3. Send an ICMP port unreach reply for port 5555, related to the first packet
+AT_CHECK([ovs-ofctl -O OpenFlow13 packet-out br0 2 ct\(recirc,zone=0\) 'e64c473528c9c6f94ecb72db080045c0003d2e8700004001f355ac100002ac1000010303553f0000000045000021317040004011b138ac100001ac100002a28e15b3000d20966369616f0a'])
+
+dnl Check this output. We only see the latter two packets, not the first.
+AT_CHECK([cat ofctl_monitor.log], [0], [dnl
+NXT_PACKET_IN (xid=0x0): cookie=0x0 total_len=47 ct_state=new|trk,in_port=1 (via action) data_len=47 (unbuffered)
+udp,vlan_tci=0x0000,dl_src=e6:4c:47:35:28:c9,dl_dst=c6:f9:4e:cb:72:db,nw_src=172.16.0.1,nw_dst=172.16.0.2,nw_tos=0,nw_ecn=0,nw_ttl=64,tp_src=41614,tp_dst=5555 udp_csum:2096
+NXT_PACKET_IN (xid=0x0): cookie=0x0 total_len=75 ct_state=rel|rpl|trk,in_port=2 (via action) data_len=75 (unbuffered)
+icmp,vlan_tci=0x0000,dl_src=c6:f9:4e:cb:72:db,dl_dst=e6:4c:47:35:28:c9,nw_src=172.16.0.2,nw_dst=172.16.0.1,nw_tos=192,nw_ecn=0,nw_ttl=64,icmp_type=3,icmp_code=3 icmp_csum:553f
 ])
 
 OVS_KMOD_VSWITCHD_STOP

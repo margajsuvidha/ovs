@@ -17,6 +17,6 @@ limitations under the License.])
 m4_include([tests/ovs-macros.at])
 m4_include([tests/ovsdb-macros.at])
 m4_include([tests/ofproto-macros.at])
-m4_include([tests/kmod-macros.at])
+m4_include([tests/userspace-macros.at])
 
 m4_include([tests/traffic.at])
