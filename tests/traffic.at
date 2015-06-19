@@ -1,8 +1,8 @@
 m4_define([FORMAT_CT], [[grep "dst=$1" | sed -e 's/port=[0-9]*/port=<cleared>/g' -e 's/  */ /g' | cut -d' ' -f4- | sort | uniq]])
 
-AT_BANNER([kmod-traffic])
+AT_BANNER([traffic])
 
-AT_SETUP([kmod - ping between two ports])
+AT_SETUP([traffic - ping between two ports])
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
 
@@ -90,7 +90,7 @@ dnl HTTP requests from ns0->ns1 should work fine.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2)], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=1
 ])
 
@@ -256,7 +256,7 @@ dnl HTTP requests from p0->p1 should work fine.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2)], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 zone=1 use=1
 ])
 
@@ -265,7 +265,7 @@ dnl Try 3 times, in 1 second intervals.
 NETNS_DAEMONIZE([at_ns3], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack1.pid])
 AT_CHECK([ip netns exec at_ns2 wget 10.1.1.4 -t 3 -T 1 -v -o wget1.log], [4])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.4)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.4)], [dnl
 SYN_RECV src=10.1.1.3 dst=10.1.1.4 sport=<cleared> dport=<cleared> src=10.1.1.4 dst=10.1.1.3 sport=<cleared> dport=<cleared> mark=0 zone=2 use=1
 ])
 
@@ -276,7 +276,7 @@ AT_SETUP([conntrack - multiple bridges])
 CONNTRACK()
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone --\
-    add-br br1 --\
+    ADD_BR(br1) --\
     add-port br0 patch+ -- set int patch+ type=patch options:peer=patch- --\
     add-port br1 patch- -- set int patch- type=patch options:peer=patch+ --])
 
@@ -349,7 +349,7 @@ dnl (again) HTTP requests from p0->p1 should work fine.
 dnl NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 dnl AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2)], [dnl
 SYN_SENT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> [[UNREPLIED]] src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> mark=0 zone=1 use=1
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 zone=2 use=1
 ])
@@ -388,7 +388,7 @@ dnl HTTP requests from p0->p1 should work fine.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep TIME], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep TIME], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=1 use=1
 ])
 
@@ -397,7 +397,7 @@ dnl Try 3 times, in 1 second intervals.
 NETNS_DAEMONIZE([at_ns3], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack1.pid])
 AT_CHECK([ip netns exec at_ns2 wget 10.1.1.4 -t 3 -T 1 -v -o wget1.log], [4])
 
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.4)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.4)], [dnl
 SYN_RECV src=10.1.1.3 dst=10.1.1.4 sport=<cleared> dport=<cleared> src=10.1.1.4 dst=10.1.1.3 sport=<cleared> dport=<cleared> mark=2 use=1
 ])
 
@@ -446,6 +446,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CONNTRACK()
+CONNTRACK_TOOL()
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
 
@@ -487,12 +488,12 @@ NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py ftp]], [test-connt
 dnl FTP requests from p1->p0 should fail due to network failure.
 dnl Try 3 times, in 1 second intervals.
 AT_CHECK([ip netns exec at_ns1 wget ftp://10.1.1.1 --no-passive-ftp  -t 3 -T 1 -v -o wget1.log], [4])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.1)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.1)], [dnl
 ])
 
 dnl FTP requests from p0->p1 should work fine.
 AT_CHECK([ip netns exec at_ns0 wget ftp://10.1.1.2 --no-passive-ftp -t 3 -T 1 --retry-connrefused -v -o wget0.log])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep -v "FIN"], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep -v "FIN"], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 helper=ftp use=1
 ])
 
@@ -504,12 +505,12 @@ AT_CHECK([ovs-ofctl add-flows br0 flows2.txt])
 dnl FTP requests from p1->p0 should fail due to network failure.
 dnl Try 3 times, in 1 second intervals.
 AT_CHECK([ip netns exec at_ns1 wget ftp://10.1.1.1 --no-passive-ftp  -t 3 -T 1 -v -o wget1.log], [4])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.1)], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.1)], [dnl
 ])
 
 dnl FTP requests from p0->p1 should work fine.
 AT_CHECK([ip netns exec at_ns0 wget ftp://10.1.1.2 --no-passive-ftp -t 3 -T 1 --retry-connrefused -v -o wget0.log])
-AT_CHECK([conntrack -L 2>&1 | FORMAT_CT(10.1.1.2) | grep -v "FIN"], [0], [dnl
+CONNTRACK_STATUS_CHECK([FORMAT_CT(10.1.1.2) | grep -v "FIN"], [dnl
 TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 helper=ftp use=2
 TIME_WAIT src=10.1.1.2 dst=10.1.1.1 sport=<cleared> dport=<cleared> src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> [[ASSURED]] mark=0 use=1
 ])

@@ -7,12 +7,12 @@
 # output (e.g. because it includes "create" commands) then 'vsctl-output'
 # specifies the expected output after filtering through uuidfilt.pl.
 #
+# XXX this should have a different name
 m4_define([OVS_KMOD_VSWITCHD_START],
-  [ AT_CHECK([modprobe openvswitch])
-    ON_EXIT([modprobe -r openvswitch])
-   _OVS_VSWITCHD_START([])
+  [
+   _OVS_VSWITCHD_START([--disable-system])
    dnl Add bridges, ports, etc.
-   AT_CHECK([ovs-vsctl -- add-br br0 -- set bridge br0 protocols=[[OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14,OpenFlow15]] fail-mode=secure -- $1 m4_if([$2], [], [], [| ${PERL} $srcdir/uuidfilt.pl])], [0], [$2])
+   AT_CHECK([ovs-vsctl -- add-br br0 -- set bridge br0 protocols=[[OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14,OpenFlow15]] fail-mode=secure datapath_type=netdev -- $1 m4_if([$2], [], [], [| ${PERL} $srcdir/uuidfilt.pl])], [0], [$2])
 ])
 #
 #
@@ -28,11 +28,13 @@ m4_define([OVS_KMOD_VSWITCHD_START],
 # 'extra_cmds' are shell commands to be executed afte OVS_VSWITCHD_STOP() is
 # invoked. They can be used to perform additional cleanups such as name space
 # removal.
+#/netdev_linux.*obtaining netdev stats via vport failed.*/d])
 m4_define([OVS_KMOD_VSWITCHD_STOP],
   [AT_CHECK([ovs-vsctl del-br br0])
-   OVS_VSWITCHD_STOP([$1])
+   OVS_VSWITCHD_STOP([dnl
+"/netdev_linux.*obtaining netdev stats via vport failed/d
+/dpif_netlink.*Generic Netlink family 'ovs_datapath' does not exist. The Open vSwitch kernel module is probably not loaded./d"])
    AT_CHECK([:; $2])
-   AT_CHECK([modprobe -r openvswitch])
   ])
 
 # DEL_NAMESPACES(ns [, ns ... ])
@@ -71,10 +73,11 @@ m4_define([ADD_NAMESPACES],
 m4_define([ADD_VETH],
     [ AT_CHECK([ip link add $1 type veth peer name ovs-$1])
       AT_CHECK([ip link set $1 netns $2])
-      AT_CHECK([ovs-vsctl add-port $3 ovs-$1])
       AT_CHECK([ip link set dev ovs-$1 up])
+      AT_CHECK([ovs-vsctl add-port $3 ovs-$1])
       AT_CHECK([ip netns exec $2 ip addr add $4 dev $1])
       AT_CHECK([ip netns exec $2 ip link set dev $1 up])
+      ON_EXIT(ip link del ovs-$1)
     ]
 )
 
@@ -83,9 +86,8 @@ m4_define([ADD_VETH],
 # Perform requirements checks for running conntrack tests, and flush the
 # kernel conntrack tables when the test is finished.
 m4_define([CONNTRACK],
-    [AT_SKIP_IF([test $HAVE_CONNTRACK = no])
+    [
      AT_SKIP_IF([test $HAVE_PYTHON = no])
-     ON_EXIT([conntrack -F])
     ]
 )
 
@@ -105,19 +107,23 @@ m4_define([NETNS_DAEMONIZE],
 #
 # Expands into the proper ovs-vsctl commands to create a bridge with the
 # appropriate type
-m4_define([ADD_BR], [[add-br $1]])
+m4_define([ADD_BR], [[add-br $1 -- set Bridge $1 datapath_type="netdev" ]])
 
 # CONNTRACK_STATUS_CHECK([filter], [status])
 #
 # Check that the conntrack tool output filtered with 'filter'
 # matches 'status'
+#
 m4_define([CONNTRACK_STATUS_CHECK],
     [
-AT_CHECK([conntrack -L 2>&1 | $1], [0], [$2])
+# XXX There no such output in userspace, so this check is a nop
     ]
 )
 
 # CONNTRACK_TOOL()
 #
 # Perform requirements checks for using the conntrack tool.
-m4_define([CONNTRACK_TOOL], [])
+m4_define([CONNTRACK_TOOL],
+    [
+        AT_SKIP_IF(true)
+    ])
