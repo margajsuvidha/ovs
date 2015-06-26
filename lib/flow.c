@@ -834,10 +834,18 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
     }
 
     match_set_in_port(flow_metadata, flow->in_port.ofp_port);
-    match_set_conn_state(flow_metadata, flow->conn_state);
-    match_set_conn_zone(flow_metadata, flow->conn_zone);
-    match_set_conn_mark(flow_metadata, flow->conn_mark);
-    match_set_conn_label(flow_metadata, flow->conn_label);
+    if (flow->conn_state != 0) {
+        match_set_conn_state(flow_metadata, flow->conn_state);
+    }
+    if (flow->conn_zone != htons(0)) {
+        match_set_conn_zone(flow_metadata, flow->conn_zone);
+    }
+    if (flow->conn_zone != htonl(0)) {
+        match_set_conn_mark(flow_metadata, flow->conn_mark);
+    }
+    if (!is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
+        match_set_conn_label(flow_metadata, flow->conn_label);
+    }
 }
 
 char *
