@@ -3661,16 +3661,16 @@ odp_flow_key_from_flow__(const struct odp_flow_key_parms *parms,
 
     nl_msg_put_u32(buf, OVS_KEY_ATTR_SKB_MARK, data->pkt_mark);
 
-    if (data->conn_state) {
+    if (parms->support.conn_state) {
         nl_msg_put_u8(buf, OVS_KEY_ATTR_CONN_STATE, data->conn_state);
     }
-    if (data->conn_zone) {
+    if (parms->support.conn_zone) {
         nl_msg_put_u16(buf, OVS_KEY_ATTR_CONN_ZONE, data->conn_zone);
     }
-    if (data->conn_mark) {
+    if (parms->support.conn_mark) {
         nl_msg_put_u32(buf, OVS_KEY_ATTR_CONN_MARK, data->conn_mark);
     }
-    if (!is_all_zeros(&data->conn_label, sizeof(data->conn_label))) {
+    if (parms->support.conn_label) {
         nl_msg_put_unspec(buf, OVS_KEY_ATTR_CONN_LABEL, &data->conn_label,
                           sizeof(data->conn_label));
     }
