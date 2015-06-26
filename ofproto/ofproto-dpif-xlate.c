@@ -3514,13 +3514,7 @@ compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
                              const struct ofpact *ofpacts)
 {
     struct recirc_metadata md;
-    bool use_masked;
     uint32_t id;
-
-    use_masked = ctx->xbridge->support.masked_set_action;
-    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
-                                          ctx->xout->odp_actions,
-                                          &ctx->xout->wc, use_masked);
 
     recirc_metadata_from_flow(&md, &ctx->xin->flow);
 
@@ -3557,6 +3551,13 @@ compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
 static void
 compose_recirculate_action(struct xlate_ctx *ctx)
 {
+    bool use_masked;
+
+    use_masked = ctx->xbridge->support.masked_set_action;
+    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
+                                          ctx->xout->odp_actions,
+                                          &ctx->xout->wc, use_masked);
+
     compose_recirculate_action__(ctx, &ctx->stack, ctx->recirc_action_offset,
                                  ctx->action_set.size, ctx->action_set.data);
 
@@ -4151,6 +4152,12 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
     struct ofpbuf *odp_actions = ctx->xout->odp_actions;
     uint32_t flags = 0;
     size_t ct_offset;
+    bool use_masked;
+
+    use_masked = ctx->xbridge->support.masked_set_action;
+    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
+                                          ctx->xout->odp_actions,
+                                          &ctx->xout->wc, use_masked);
 
     if (ofc->flags & NX_CT_F_COMMIT) {
         flags |= OVS_CT_F_COMMIT;
