@@ -162,12 +162,56 @@ int odp_flow_from_string(const char *s,
                          const struct simap *port_names,
                          struct ofpbuf *, struct ofpbuf *);
 
-void odp_flow_key_from_flow(struct ofpbuf *, const struct flow * flow,
-                            const struct flow *mask, odp_port_t odp_in_port,
-                            bool recirc);
-void odp_flow_key_from_mask(struct ofpbuf *, const struct flow *mask,
-                            const struct flow *flow, uint32_t odp_in_port,
-                            size_t max_mpls_depth, bool recirc);
+/* Stores the various features which the datapath supports. */
+struct odp_support {
+    /* True if the datapath supports variable-length
+     * OVS_USERSPACE_ATTR_USERDATA in OVS_ACTION_ATTR_USERSPACE actions.
+     * False if the datapath supports only 8-byte (or shorter) userdata. */
+    bool variable_length_userdata;
+
+    /* Maximum number of MPLS label stack entries that the datapath supports
+     * in a match */
+    size_t max_mpls_depth;
+
+    /* True if the datapath supports masked data in OVS_ACTION_ATTR_SET
+     * actions. */
+    bool masked_set_action;
+
+    /* True if the datapath supports recirculation. */
+    bool recirc;
+
+    /* True if the datapath supports tnl_push and pop actions. */
+    bool tnl_push_pop;
+
+    /* True if the datapath supports OVS_FLOW_ATTR_UFID. */
+    bool ufid;
+    bool conn_state;
+    bool conn_zone;
+    bool conn_mark;
+    bool conn_label;
+};
+
+struct odp_flow_key_parms {
+    /* The flow and mask to be serialized. In the case of masks, 'flow'
+     * is used as a template to determine how to interpret 'mask'.  For
+     * example, the 'dl_type' of 'mask' describes the mask, but it doesn't
+     * indicate whether the other fields should be interpreted as ARP, IPv4,
+     * IPv6, etc. */
+    const struct flow *flow;
+    const struct flow *mask;
+
+   /* 'flow->in_port' is ignored (since it is likely to be an OpenFlow port
+    * number rather than a datapath port number).  Instead, if 'odp_in_port'
+    * is anything other than ODPP_NONE, it is included in 'buf' as the input
+    * port. */
+    odp_port_t odp_in_port;
+
+    /* Used to determine flow key serialization. */
+    struct odp_support support;
+};
+
+void odp_flow_key_from_flow(const struct odp_flow_key_parms *, struct ofpbuf *);
+void odp_flow_key_from_mask(const struct odp_flow_key_parms *, struct ofpbuf *);
 
 uint32_t odp_flow_key_hash(const struct nlattr *, size_t);
 

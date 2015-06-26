@@ -1810,7 +1810,7 @@ schedule_packet_in(struct ofconn *ofconn, struct ofproto_packet_in pin,
     } else {
         pin.up.buffer_id = pktbuf_save(ofconn->pktbuf,
                                        pin.up.packet, pin.up.packet_len,
-                                       pin.up.fmd.in_port);
+                                       pin.up.flow_metadata.flow.in_port.ofp_port);
     }
 
     /* Figure out how much of the packet to send.
@@ -1823,7 +1823,7 @@ schedule_packet_in(struct ofconn *ofconn, struct ofproto_packet_in pin,
 
     /* Make OFPT_PACKET_IN and hand over to packet scheduler. */
     pinsched_send(ofconn->schedulers[pin.up.reason == OFPR_NO_MATCH ? 0 : 1],
-                  pin.up.fmd.in_port,
+                  pin.up.flow_metadata.flow.in_port.ofp_port,
                   ofputil_encode_packet_in(&pin.up,
                                            ofconn_get_protocol(ofconn),
                                            ofconn->packet_in_format),
@@ -2027,7 +2027,7 @@ connmgr_flushed(struct connmgr *mgr)
 
 /* Returns the number of hidden rules created by the in-band and fail-open
  * implementations in table 0.  (Subtracting this count from the number of
- * rules in the table 0 classifier, as returned by classifier_count(), yields
+ * rules in the table 0 classifier, as maintained in struct oftable, yields
  * the number of flows that OVS should report via OpenFlow for table 0.) */
 int
 connmgr_count_hidden_rules(const struct connmgr *mgr)

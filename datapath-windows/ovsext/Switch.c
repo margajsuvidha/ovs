@@ -46,7 +46,7 @@ extern PDEVICE_OBJECT gOvsDeviceObject;
  * Reference count used to prevent premature deallocation of the global switch
  * context structure, gOvsSwitchContext.
  */
-volatile LONG      gOvsSwitchContextRefCount = 1;
+volatile LONG      gOvsSwitchContextRefCount = 0;
 
 static NDIS_STATUS OvsCreateSwitch(NDIS_HANDLE ndisFilterHandle,
                                    POVS_SWITCH_CONTEXT *switchContextOut);
@@ -137,6 +137,7 @@ OvsExtAttach(NDIS_HANDLE ndisFilterHandle,
     switchContext->controlFlowState = OvsSwitchAttached;
     switchContext->dataFlowState = OvsSwitchPaused;
 
+    gOvsSwitchContextRefCount = 1;
     gOvsSwitchContext = switchContext;
     KeMemoryBarrier();
 
@@ -201,6 +202,7 @@ OvsCreateSwitch(NDIS_HANDLE ndisFilterHandle,
     status = OvsInitSwitchContext(switchContext);
     if (status != NDIS_STATUS_SUCCESS) {
         OvsFreeMemoryWithTag(switchContext, OVS_SWITCH_POOL_TAG);
+        switchContext = NULL;
         goto create_switch_done;
     }
 
@@ -240,7 +242,6 @@ OvsExtDetach(NDIS_HANDLE filterModuleContext)
     }
     OvsDeleteSwitch(switchContext);
     OvsCleanupIpHelper();
-    gOvsSwitchContext = NULL;
     /* This completes the cleanup, and a new attach can be handled now. */
 
     OVS_LOG_TRACE("Exit: OvsDetach Successfully");
@@ -495,6 +496,7 @@ OvsReleaseSwitchContext(POVS_SWITCH_CONTEXT switchContext)
 
     if (ref == 1) {
         OvsDeleteSwitchContext(switchContext);
+        gOvsSwitchContext = NULL;
     }
 }
 

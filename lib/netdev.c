@@ -111,7 +111,8 @@ netdev_is_pmd(const struct netdev *netdev)
 {
     return (!strcmp(netdev->netdev_class->type, "dpdk") ||
             !strcmp(netdev->netdev_class->type, "dpdkr") ||
-            !strcmp(netdev->netdev_class->type, "dpdkvhost"));
+            !strcmp(netdev->netdev_class->type, "dpdkvhostcuse") ||
+            !strcmp(netdev->netdev_class->type, "dpdkvhostuser"));
 }
 
 static void
@@ -256,6 +257,8 @@ netdev_unregister_provider(const char *type)
 {
     struct netdev_registered_class *rc;
     int error;
+
+    netdev_initialize();
 
     ovs_mutex_lock(&netdev_class_mutex);
     rc = netdev_lookup_class(type);

@@ -1644,12 +1644,37 @@ struct mf_subfield {
  * value" contains NXM_OF_VLAN_TCI[0..11], then one could access the
  * corresponding data in value.be16[7] as the bits in the mask htons(0xfff). */
 union mf_subvalue {
+    /* Access to full data. */
     uint8_t u8[16];
     ovs_be16 be16[8];
     ovs_be32 be32[4];
     ovs_be64 be64[2];
+
+    /* Convenient access to just least-significant bits in various forms. */
+    struct {
+        ovs_be64 dummy_integer;
+        ovs_be64 integer;
+    };
+    struct {
+        uint8_t dummy_mac[10];
+        uint8_t mac[6];
+    };
+    struct {
+        ovs_be32 dummy_ipv4[3];
+        ovs_be32 ipv4;
+    };
+    struct in6_addr ipv6;
 };
 BUILD_ASSERT_DECL(sizeof(union mf_value) == sizeof (union mf_subvalue));
+
+bool mf_subvalue_intersect(const union mf_subvalue *a_value,
+                           const union mf_subvalue *a_mask,
+                           const union mf_subvalue *b_value,
+                           const union mf_subvalue *b_mask,
+                           union mf_subvalue *dst_value,
+                           union mf_subvalue *dst_mask);
+int mf_subvalue_width(const union mf_subvalue *);
+void mf_subvalue_shift(union mf_subvalue *, int n);
 
 /* An array of fields with values */
 struct field_array {
@@ -1719,6 +1744,10 @@ void mf_write_subfield_flow(const struct mf_subfield *,
                             const union mf_subvalue *, struct flow *);
 void mf_write_subfield(const struct mf_subfield *, const union mf_subvalue *,
                        struct match *);
+void mf_mask_subfield(const struct mf_field *,
+                      const union mf_subvalue *value,
+                      const union mf_subvalue *mask,
+                      struct match *);
 
 void mf_read_subfield(const struct mf_subfield *, const struct flow *,
                       union mf_subvalue *);

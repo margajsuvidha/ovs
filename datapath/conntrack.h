@@ -118,8 +118,8 @@ static inline void ovs_ct_get_label(const struct sk_buff *skb,
 				    struct ovs_key_conn_label *label) { }
 static inline int ovs_ct_set_label(struct sk_buff *skb,
 				   struct sw_flow_key *key,
-				   struct ovs_key_conn_label *label,
-				   struct ovs_key_conn_label *mask)
+				   const struct ovs_key_conn_label *label,
+				   const struct ovs_key_conn_label *mask)
 {
 	return -ENOTSUPP;
 }

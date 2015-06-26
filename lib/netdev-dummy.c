@@ -725,7 +725,8 @@ netdev_dummy_get_in4(const struct netdev *netdev_,
     *address = netdev->address;
     *netmask = netdev->netmask;
     ovs_mutex_unlock(&netdev->mutex);
-    return 0;
+
+    return address->s_addr ? 0 : EADDRNOTAVAIL;
 }
 
 static int
@@ -930,6 +931,23 @@ netdev_dummy_send(struct netdev *netdev, int qid OVS_UNUSED,
         dev->stats.tx_bytes += size;
 
         dummy_packet_conn_send(&dev->conn, buffer, size);
+
+        /* Reply to ARP requests for 'dev''s assigned IP address. */
+        if (dev->address.s_addr) {
+            struct dp_packet packet;
+            struct flow flow;
+
+            dp_packet_use_const(&packet, buffer, size);
+            flow_extract(&packet, &flow);
+            if (flow.dl_type == htons(ETH_TYPE_ARP)
+                && flow.nw_proto == ARP_OP_REQUEST
+                && flow.nw_dst == dev->address.s_addr) {
+                struct dp_packet *reply = dp_packet_new(0);
+                compose_arp(reply, ARP_OP_REPLY, dev->hwaddr, flow.dl_src,
+                            false, flow.nw_dst, flow.nw_src);
+                netdev_dummy_queue_packet(dev, reply);
+            }
+        }
 
         if (dev->tx_pcap) {
             struct dp_packet packet;
@@ -1408,8 +1426,27 @@ netdev_dummy_ip4addr(struct unixctl_conn *conn, int argc OVS_UNUSED,
 
 }
 
+static void
+netdev_dummy_override(const char *type)
+{
+    if (!netdev_unregister_provider(type)) {
+        struct netdev_class *class;
+        int error;
+
+        class = xmemdup(&dummy_class, sizeof dummy_class);
+        class->type = xstrdup(type);
+        error = netdev_register_provider(class);
+        if (error) {
+            VLOG_ERR("%s: failed to register netdev provider (%s)",
+                     type, ovs_strerror(error));
+            free(CONST_CAST(char *, class->type));
+            free(class);
+        }
+    }
+}
+
 void
-netdev_dummy_register(bool override)
+netdev_dummy_register(enum dummy_level level)
 {
     unixctl_command_register("netdev-dummy/receive", "name packet|flow...",
                              2, INT_MAX, netdev_dummy_receive, NULL);
@@ -1423,33 +1460,20 @@ netdev_dummy_register(bool override)
                              "[netdev] ipaddr/mask-prefix-len", 2, 2,
                              netdev_dummy_ip4addr, NULL);
 
-
-    if (override) {
+    if (level == DUMMY_OVERRIDE_ALL) {
         struct sset types;
         const char *type;
 
         sset_init(&types);
         netdev_enumerate_types(&types);
         SSET_FOR_EACH (type, &types) {
-            if (!strcmp(type, "patch")) {
-                continue;
-            }
-            if (!netdev_unregister_provider(type)) {
-                struct netdev_class *class;
-                int error;
-
-                class = xmemdup(&dummy_class, sizeof dummy_class);
-                class->type = xstrdup(type);
-                error = netdev_register_provider(class);
-                if (error) {
-                    VLOG_ERR("%s: failed to register netdev provider (%s)",
-                             type, ovs_strerror(error));
-                    free(CONST_CAST(char *, class->type));
-                    free(class);
-                }
+            if (strcmp(type, "patch")) {
+                netdev_dummy_override(type);
             }
         }
         sset_destroy(&types);
+    } else if (level == DUMMY_OVERRIDE_SYSTEM) {
+        netdev_dummy_override("system");
     }
     netdev_register_provider(&dummy_class);
 

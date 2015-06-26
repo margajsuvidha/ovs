@@ -60,7 +60,7 @@ static struct net *ovs_get_net(const struct sk_buff *skb)
 	if (!vport)
 		return ERR_PTR(-EINVAL);
 
-	return read_pnet(&vport->dp->net);
+	return ovs_dp_get_net(vport->dp);
 }
 
 /* Map SKB connection state into the values used by flow definition. */

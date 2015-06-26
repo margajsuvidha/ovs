@@ -62,17 +62,17 @@ NTSTATUS OvsCleanupVxlanTunnel(PIRP irp,
 NDIS_STATUS OvsSlowPathDecapVxlan(const PNET_BUFFER_LIST packet,
                                   OvsIPv4TunnelKey *tunnelKey);
 
-NDIS_STATUS OvsEncapVxlan(PNET_BUFFER_LIST curNbl,
+NDIS_STATUS OvsEncapVxlan(POVS_VPORT_ENTRY vport,
+                          PNET_BUFFER_LIST curNbl,
                           OvsIPv4TunnelKey *tunKey,
                           POVS_SWITCH_CONTEXT switchContext,
-                          VOID *completionList,
                           POVS_PACKET_HDR_INFO layers,
                           PNET_BUFFER_LIST *newNbl);
 
-NDIS_STATUS OvsDoDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
-                            PNET_BUFFER_LIST curNbl,
-                            OvsIPv4TunnelKey *tunKey,
-                            PNET_BUFFER_LIST *newNbl);
+NDIS_STATUS OvsDecapVxlan(POVS_SWITCH_CONTEXT switchContext,
+                          PNET_BUFFER_LIST curNbl,
+                          OvsIPv4TunnelKey *tunKey,
+                          PNET_BUFFER_LIST *newNbl);
 
 static __inline UINT32
 OvsGetVxlanTunHdrSize(VOID)

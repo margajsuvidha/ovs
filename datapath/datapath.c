@@ -1550,7 +1550,7 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	ovs_dp_change(dp, a);
 
 	/* Set up conntrack dependencies. */
-	ovs_ct_init(read_pnet(&dp->net), &dp->ct);
+	ovs_ct_init(ovs_dp_get_net(dp), &dp->ct);
 
 	/* So far only local changes have been made, now need the lock. */
 	ovs_lock();

@@ -994,7 +994,7 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
         pin->up.reason = OFPR_NO_MATCH;
         pin->up.table_id = 0;
         pin->up.cookie = OVS_BE64_MAX;
-        flow_get_metadata(upcall->flow, &pin->up.fmd);
+        flow_get_metadata(upcall->flow, &pin->up.flow_metadata);
         pin->send_len = 0; /* Not used for flow table misses. */
         pin->miss_type = OFPROTO_PACKET_IN_NO_MISS;
         ofproto_dpif_send_packet_in(upcall->ofproto, pin);
@@ -1362,27 +1362,28 @@ ukey_create_from_upcall(struct upcall *upcall)
 {
     struct odputil_keybuf keystub, maskstub;
     struct ofpbuf keybuf, maskbuf;
-    bool recirc, megaflow;
+    bool megaflow;
+    struct odp_flow_key_parms odp_parms = {
+        .flow = upcall->flow,
+        .mask = &upcall->xout.wc.masks,
+    };
 
+    odp_parms.support = *ofproto_dpif_get_support(upcall->ofproto);
     if (upcall->key_len) {
         ofpbuf_use_const(&keybuf, upcall->key, upcall->key_len);
     } else {
         /* dpif-netdev doesn't provide a netlink-formatted flow key in the
          * upcall, so convert the upcall's flow here. */
         ofpbuf_use_stack(&keybuf, &keystub, sizeof keystub);
-        odp_flow_key_from_flow(&keybuf, upcall->flow, &upcall->xout.wc.masks,
-                               upcall->flow->in_port.odp_port, true);
+        odp_parms.odp_in_port = upcall->flow->in_port.odp_port;
+        odp_flow_key_from_flow(&odp_parms, &keybuf);
     }
 
     atomic_read_relaxed(&enable_megaflows, &megaflow);
-    recirc = ofproto_dpif_get_enable_recirc(upcall->ofproto);
     ofpbuf_use_stack(&maskbuf, &maskstub, sizeof maskstub);
     if (megaflow) {
-        size_t max_mpls;
-
-        max_mpls = ofproto_dpif_get_max_mpls_depth(upcall->ofproto);
-        odp_flow_key_from_mask(&maskbuf, &upcall->xout.wc.masks, upcall->flow,
-                               UINT32_MAX, max_mpls, recirc);
+        odp_parms.odp_in_port = ODPP_NONE;
+        odp_flow_key_from_mask(&odp_parms, &maskbuf);
     }
 
     return ukey_create__(keybuf.data, keybuf.size, maskbuf.data, maskbuf.size,

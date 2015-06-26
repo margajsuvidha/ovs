@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@
 #include "coverage.h"
 #include "dpctl.h"
 #include "dp-packet.h"
+#include "dpif-netdev.h"
 #include "dynamic-string.h"
 #include "flow.h"
 #include "netdev.h"
@@ -46,6 +47,7 @@
 #include "tnl-arp-cache.h"
 #include "tnl-ports.h"
 #include "util.h"
+#include "uuid.h"
 #include "valgrind.h"
 #include "openvswitch/vlog.h"
 
@@ -852,6 +854,7 @@ dpif_flow_hash(const struct dpif *dpif OVS_UNUSED,
         ovsthread_once_done(&once);
     }
     hash_bytes128(key, key_len, secret, hash);
+    uuid_set_bits_v4((struct uuid *)hash);
 }
 
 /* Deletes all flows from 'dpif'.  Returns 0 if successful, otherwise a
@@ -1704,6 +1707,5 @@ log_flow_get_message(const struct dpif *dpif, const struct dpif_flow_get *get,
 bool
 dpif_supports_tnl_push_pop(const struct dpif *dpif)
 {
-   return !strcmp(dpif->dpif_class->type, "netdev") ||
-          !strcmp(dpif->dpif_class->type, "dummy");
+    return dpif_is_netdev(dpif);
 }

@@ -87,6 +87,15 @@ static struct shash dp_netdevs OVS_GUARDED_BY(dp_netdev_mutex)
 
 static struct vlog_rate_limit upcall_rl = VLOG_RATE_LIMIT_INIT(600, 600);
 
+static struct odp_support dp_netdev_support = {
+    .variable_length_userdata = true,
+    .max_mpls_depth = SIZE_MAX,
+    .masked_set_action = true,
+    .recirc = true,
+    .tnl_push_pop = true,
+    .ufid = true
+};
+
 /* Stores a miniflow with inline values */
 
 struct netdev_flow_key {
@@ -415,6 +424,8 @@ struct dp_netdev_pmd_thread {
                                     /* threads on same numa node. */
     unsigned core_id;               /* CPU core id of this pmd thread. */
     int numa_id;                    /* numa node id of this pmd thread. */
+    int tx_qid;                     /* Queue id used by this pmd thread to
+                                     * send packets on all netdevs */
 
     /* Only a pmd thread can write on its own 'cycles' and 'stats'.
      * The main thread keeps 'stats_zero' and 'cycles_zero' as base
@@ -517,10 +528,17 @@ emc_cache_slow_sweep(struct emc_cache *flow_cache)
     flow_cache->sweep_idx = (flow_cache->sweep_idx + 1) & EM_FLOW_HASH_MASK;
 }
 
+/* Returns true if 'dpif' is a netdev or dummy dpif, false otherwise. */
+bool
+dpif_is_netdev(const struct dpif *dpif)
+{
+    return dpif->dpif_class->open == dpif_netdev_open;
+}
+
 static struct dpif_netdev *
 dpif_netdev_cast(const struct dpif *dpif)
 {
-    ovs_assert(dpif->dpif_class->open == dpif_netdev_open);
+    ovs_assert(dpif_is_netdev(dpif));
     return CONTAINER_OF(dpif, struct dpif_netdev, dpif);
 }
 
@@ -1067,8 +1085,9 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
             return ENOENT;
         }
         /* There can only be ovs_numa_get_n_cores() pmd threads,
-         * so creates a txq for each. */
-        error = netdev_set_multiq(netdev, n_cores, dp->n_dpdk_rxqs);
+         * so creates a txq for each, and one extra for the non
+         * pmd threads. */
+        error = netdev_set_multiq(netdev, n_cores + 1, dp->n_dpdk_rxqs);
         if (error && (error != EOPNOTSUPP)) {
             VLOG_ERR("%s, cannot set multiq", devname);
             return errno;
@@ -1812,22 +1831,26 @@ dp_netdev_flow_to_dpif_flow(const struct dp_netdev_flow *netdev_flow,
         struct flow_wildcards wc;
         struct dp_netdev_actions *actions;
         size_t offset;
+        struct odp_flow_key_parms odp_parms = {
+            .flow = &netdev_flow->flow,
+            .mask = &wc.masks,
+            .support = dp_netdev_support,
+        };
 
         miniflow_expand(&netdev_flow->cr.mask->mf, &wc.masks);
 
         /* Key */
         offset = key_buf->size;
         flow->key = ofpbuf_tail(key_buf);
-        odp_flow_key_from_flow(key_buf, &netdev_flow->flow, &wc.masks,
-                               netdev_flow->flow.in_port.odp_port, true);
+        odp_parms.odp_in_port = netdev_flow->flow.in_port.odp_port;
+        odp_flow_key_from_flow(&odp_parms, key_buf);
         flow->key_len = key_buf->size - offset;
 
         /* Mask */
         offset = mask_buf->size;
         flow->mask = ofpbuf_tail(mask_buf);
-        odp_flow_key_from_mask(mask_buf, &wc.masks, &netdev_flow->flow,
-                               odp_to_u32(wc.masks.in_port.odp_port),
-                               SIZE_MAX, true);
+        odp_parms.odp_in_port = wc.masks.in_port.odp_port;
+        odp_flow_key_from_mask(&odp_parms, mask_buf);
         flow->mask_len = mask_buf->size - offset;
 
         /* Actions */
@@ -2408,7 +2431,8 @@ dpif_netdev_pmd_set(struct dpif *dpif, unsigned int n_rxqs, const char *cmask)
                 }
 
                 /* Sets the new rx queue config.  */
-                err = netdev_set_multiq(port->netdev, ovs_numa_get_n_cores(),
+                err = netdev_set_multiq(port->netdev,
+                                        ovs_numa_get_n_cores() + 1,
                                         n_rxqs);
                 if (err && (err != EOPNOTSUPP)) {
                     VLOG_ERR("Failed to set dpdk interface %s rx_queue to:"
@@ -2812,6 +2836,16 @@ dp_netdev_pmd_get_next(struct dp_netdev *dp, struct cmap_position *pos)
     return next;
 }
 
+static int
+core_id_to_qid(unsigned core_id)
+{
+    if (core_id != NON_PMD_CORE_ID) {
+        return core_id;
+    } else {
+        return ovs_numa_get_n_cores();
+    }
+}
+
 /* Configures the 'pmd' based on the input argument. */
 static void
 dp_netdev_configure_pmd(struct dp_netdev_pmd_thread *pmd, struct dp_netdev *dp,
@@ -2820,6 +2854,7 @@ dp_netdev_configure_pmd(struct dp_netdev_pmd_thread *pmd, struct dp_netdev *dp,
     pmd->dp = dp;
     pmd->index = index;
     pmd->core_id = core_id;
+    pmd->tx_qid = core_id_to_qid(core_id);
     pmd->numa_id = numa_id;
 
     ovs_refcount_init(&pmd->ref_cnt);
@@ -2999,10 +3034,15 @@ dp_netdev_upcall(struct dp_netdev_pmd_thread *pmd, struct dp_packet *packet_,
         struct ds ds = DS_EMPTY_INITIALIZER;
         char *packet_str;
         struct ofpbuf key;
+        struct odp_flow_key_parms odp_parms = {
+            .flow = flow,
+            .mask = &wc->masks,
+            .odp_in_port = flow->in_port.odp_port,
+            .support = dp_netdev_support,
+        };
 
         ofpbuf_init(&key, 0);
-        odp_flow_key_from_flow(&key, flow, &wc->masks, flow->in_port.odp_port,
-                               true);
+        odp_flow_key_from_flow(&odp_parms, &key);
         packet_str = ofp_packet_to_string(dp_packet_data(packet_),
                                           dp_packet_size(packet_));
 
@@ -3139,6 +3179,11 @@ emc_processing(struct dp_netdev_pmd_thread *pmd, struct dp_packet **packets,
         if (OVS_UNLIKELY(dp_packet_size(packets[i]) < ETH_HEADER_LEN)) {
             dp_packet_delete(packets[i]);
             continue;
+        }
+
+        if (i != cnt - 1) {
+            /* Prefetch next packet data */
+            OVS_PREFETCH(dp_packet_data(packets[i+1]));
         }
 
         miniflow_extract(packets[i], &key.mf);
@@ -3335,7 +3380,7 @@ dpif_netdev_register_upcall_cb(struct dpif *dpif, upcall_callback *cb,
 }
 
 static void
-dp_netdev_drop_packets(struct dp_packet ** packets, int cnt, bool may_steal)
+dp_netdev_drop_packets(struct dp_packet **packets, int cnt, bool may_steal)
 {
     if (may_steal) {
         int i;
@@ -3393,7 +3438,7 @@ dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
     case OVS_ACTION_ATTR_OUTPUT:
         p = dp_netdev_lookup_port(dp, u32_to_odp(nl_attr_get_u32(a)));
         if (OVS_LIKELY(p)) {
-            netdev_send(p->netdev, pmd->core_id, packets, cnt, may_steal);
+            netdev_send(p->netdev, pmd->tx_qid, packets, cnt, may_steal);
             return;
         }
         break;
@@ -3687,21 +3732,29 @@ dpif_dummy_register__(const char *type)
     dp_register_provider(class);
 }
 
-void
-dpif_dummy_register(bool override)
+static void
+dpif_dummy_override(const char *type)
 {
-    if (override) {
+    if (!dp_unregister_provider(type)) {
+        dpif_dummy_register__(type);
+    }
+}
+
+void
+dpif_dummy_register(enum dummy_level level)
+{
+    if (level == DUMMY_OVERRIDE_ALL) {
         struct sset types;
         const char *type;
 
         sset_init(&types);
         dp_enumerate_types(&types);
         SSET_FOR_EACH (type, &types) {
-            if (!dp_unregister_provider(type)) {
-                dpif_dummy_register__(type);
-            }
+            dpif_dummy_override(type);
         }
         sset_destroy(&types);
+    } else if (level == DUMMY_OVERRIDE_SYSTEM) {
+        dpif_dummy_override("system");
     }
 
     dpif_dummy_register__("dummy");
