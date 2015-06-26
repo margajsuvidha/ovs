@@ -1239,7 +1239,9 @@ check_##NAME(struct dpif_backer *backer)                                    \
     bool enable;                                                            \
     struct odp_flow_key_parms odp_parms = {                                 \
         .flow = &flow,                                                      \
-        .recirc = true,                                                     \
+        .support = {                                                        \
+            .NAME = true,                                                  \
+        },                                                                  \
     };                                                                      \
                                                                             \
     memset(&flow, 0, sizeof flow);                                          \
