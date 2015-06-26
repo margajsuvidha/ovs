@@ -162,6 +162,35 @@ int odp_flow_from_string(const char *s,
                          const struct simap *port_names,
                          struct ofpbuf *, struct ofpbuf *);
 
+/* Stores the various features which the datapath supports. */
+struct odp_support {
+    /* True if the datapath supports variable-length
+     * OVS_USERSPACE_ATTR_USERDATA in OVS_ACTION_ATTR_USERSPACE actions.
+     * False if the datapath supports only 8-byte (or shorter) userdata. */
+    bool variable_length_userdata;
+
+    /* Maximum number of MPLS label stack entries that the datapath supports
+     * in a match */
+    size_t max_mpls_depth;
+
+    /* True if the datapath supports masked data in OVS_ACTION_ATTR_SET
+     * actions. */
+    bool masked_set_action;
+
+    /* True if the datapath supports recirculation. */
+    bool recirc;
+
+    /* True if the datapath supports tnl_push and pop actions. */
+    bool tnl_push_pop;
+
+    /* True if the datapath supports OVS_FLOW_ATTR_UFID. */
+    bool ufid;
+    bool conn_state;
+    bool conn_zone;
+    bool conn_mark;
+    bool conn_label;
+};
+
 struct odp_flow_key_parms {
     /* The flow and mask to be serialized. In the case of masks, 'flow'
      * is used as a template to determine how to interpret 'mask'.  For
@@ -177,12 +206,8 @@ struct odp_flow_key_parms {
     * port. */
     odp_port_t odp_in_port;
 
-    /* Indicates support for recirculation fields. If this is true, then
-     * these fields will always be serialised. */
-    bool recirc;
-
-    /* Only used for mask translation: */
-    size_t max_mpls_depth;
+    /* Used to determine flow key serialization. */
+    struct odp_support support;
 };
 
 void odp_flow_key_from_flow(const struct odp_flow_key_parms *, struct ofpbuf *);

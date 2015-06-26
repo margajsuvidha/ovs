@@ -284,7 +284,7 @@ struct dpif_backer {
     char *dp_version_string;
 
     /* Datapath feature support. */
-    struct dpif_backer_support support;
+    struct odp_support support;
     struct atomic_count tnl_count;
 };
 
@@ -375,6 +375,13 @@ bool
 ofproto_dpif_get_enable_ufid(struct dpif_backer *backer)
 {
     return backer->support.ufid;
+}
+
+/* XXX: I'm assuming this is safe */
+struct odp_support *
+ofproto_dpif_get_support(const struct ofproto_dpif *ofproto)
+{
+    return &ofproto->backer->support;
 }
 
 static void ofproto_trace(struct ofproto_dpif *, struct flow *,
@@ -1005,7 +1012,9 @@ check_recirc(struct dpif_backer *backer)
     bool enable_recirc;
     struct odp_flow_key_parms odp_parms = {
         .flow = &flow,
-        .recirc = true,
+        .support = {
+            .recirc = true,
+        },
     };
 
     memset(&flow, 0, sizeof flow);

@@ -212,7 +212,7 @@ void xlate_ofproto_set(struct ofproto_dpif *, const char *name, struct dpif *,
                        const struct mbridge *, const struct dpif_sflow *,
                        const struct dpif_ipfix *, const struct netflow *,
                        bool forward_bpdu, bool has_in_band,
-                       const struct dpif_backer_support *support);
+                       const struct odp_support *support);
 void xlate_remove_ofproto(struct ofproto_dpif *);
 
 void xlate_bundle_set(struct ofproto_dpif *, struct ofbundle *,

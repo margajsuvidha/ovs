@@ -97,7 +97,7 @@ struct xbridge {
     bool forward_bpdu;            /* Bridge forwards STP BPDUs? */
 
     /* Datapath feature support. */
-    struct dpif_backer_support support;
+    struct odp_support support;
 };
 
 struct xbundle {
@@ -488,7 +488,7 @@ static void xlate_xbridge_set(struct xbridge *, struct dpif *,
                               const struct dpif_ipfix *,
                               const struct netflow *,
                               bool forward_bpdu, bool has_in_band,
-                              const struct dpif_backer_support *);
+                              const struct odp_support *);
 static void xlate_xbundle_set(struct xbundle *xbundle,
                               enum port_vlan_mode vlan_mode, int vlan,
                               unsigned long *trunks, bool use_priority_tags,
@@ -560,7 +560,7 @@ xlate_xbridge_set(struct xbridge *xbridge,
                   const struct dpif_ipfix *ipfix,
                   const struct netflow *netflow,
                   bool forward_bpdu, bool has_in_band,
-                  const struct dpif_backer_support *support)
+                  const struct odp_support *support)
 {
     if (xbridge->ml != ml) {
         mac_learning_unref(xbridge->ml);
@@ -842,7 +842,7 @@ xlate_ofproto_set(struct ofproto_dpif *ofproto, const char *name,
                   const struct dpif_ipfix *ipfix,
                   const struct netflow *netflow,
                   bool forward_bpdu, bool has_in_band,
-                  const struct dpif_backer_support *support)
+                  const struct odp_support *support)
 {
     struct xbridge *xbridge;
 
