@@ -90,6 +90,11 @@ sed '/bos=0/{
 s/^/ODP_FIT_TOO_LITTLE: /
 }' < odp-in.txt > odp-out.txt
 
+dnl Some fields are always printed for this test, because wildcards aren't
+dnl specified. We can skip these.
+sed -i 's/\(skb_mark(0)\),\(conn\)/\1,conn_state(),conn_zone(0),\2/' odp-out.txt
+sed -i 's/\(skb_mark([[^)]]*)\),\(recirc\)/\1,conn_state(),conn_zone(0),conn_mark(0),conn_label(0),\2/' odp-out.txt
+
 AT_CHECK_UNQUOTED([ovstest test-odp parse-keys < odp-in.txt], [0], [`cat odp-out.txt`
 ])
 AT_CLEANUP

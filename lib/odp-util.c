@@ -2220,6 +2220,21 @@ format_frag(struct ds *ds, const char *name, uint8_t key,
     }
 }
 
+static bool
+mask_empty(const struct nlattr *ma)
+{
+    const void *mask;
+    size_t n;
+
+    if (!ma) {
+        return true;
+    }
+    mask = nl_attr_get(ma);
+    n = nl_attr_get_size(ma);
+
+    return is_all_zeros(mask, n);
+}
+
 static void
 format_odp_key_attr(const struct nlattr *a, const struct nlattr *ma,
                     const struct hmap *portno_names, struct ds *ds,
@@ -2255,10 +2270,18 @@ format_odp_key_attr(const struct nlattr *a, const struct nlattr *ma,
     case OVS_KEY_ATTR_SKB_MARK:
     case OVS_KEY_ATTR_DP_HASH:
     case OVS_KEY_ATTR_RECIRC_ID:
-    case OVS_KEY_ATTR_CONN_MARK:
         ds_put_format(ds, "%#"PRIx32, nl_attr_get_u32(a));
         if (!is_exact) {
             ds_put_format(ds, "/%#"PRIx32, nl_attr_get_u32(ma));
+        }
+        break;
+
+    case OVS_KEY_ATTR_CONN_MARK:
+        if (verbose || !mask_empty(ma)) {
+            ds_put_format(ds, "%#"PRIx32, nl_attr_get_u32(a));
+            if (!is_exact) {
+                ds_put_format(ds, "/%#"PRIx32, nl_attr_get_u32(ma));
+            }
         }
         break;
 
@@ -2273,7 +2296,9 @@ format_odp_key_attr(const struct nlattr *a, const struct nlattr *ma,
         break;
 
     case OVS_KEY_ATTR_CONN_ZONE:
-        ds_put_format(ds, "%"PRIx16, nl_attr_get_u16(a));
+        if (verbose || !mask_empty(ma)) {
+            ds_put_format(ds, "%"PRIx16, nl_attr_get_u16(a));
+        }
         break;
 
     case OVS_KEY_ATTR_CONN_LABEL: {
