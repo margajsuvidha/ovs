@@ -21,6 +21,7 @@
 #include <netinet/ip6.h>
 
 #include "hmap.h"
+#include "openvswitch/types.h"
 #include "packets.h"
 #include "unaligned.h"
 
@@ -54,6 +55,8 @@ struct conn {
     struct conn_key rev_key;
     long long expiration;
     struct hmap_node node;
+    uint32_t mark;
+    ovs_u128 label;
 };
 
 struct ct_l4_proto {

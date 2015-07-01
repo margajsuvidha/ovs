@@ -26,6 +26,7 @@
 #include "netdev.h"
 #include "odp-netlink.h"
 #include "openvswitch/vlog.h"
+#include "ovs-rcu.h"
 #include "timeval.h"
 
 /*
@@ -114,6 +115,8 @@ conntrack(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
     conn_keys_lookup(&ct->connections, keys, cnt, now);
 
     for (i = 0; i < cnt; i++) {
+        pkts[i]->ct_conn = NULL;
+
         if (keys[i].conn) {
             /* XXX if this has already been tracked on the same zone
              * (and with the same helper?) do not update.  It was also
@@ -128,6 +131,10 @@ conntrack(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
             }
 
             pkts[i]->md.conn_zone = zone;
+            pkts[i]->md.conn_label = keys[i].conn->label;
+            pkts[i]->md.conn_mark = keys[i].conn->mark;
+            pkts[i]->ct_conn = keys[i].conn;
+
         } else if (keys[i].key_ok) {
 
             if (!valid_new(pkts[i], &keys[i].key)) {
@@ -144,7 +151,9 @@ conntrack(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
 
                 conn_key_reverse(&nc->rev_key);
                 hmap_insert(&ct->connections, &nc->node, keys[i].hash);
+                pkts[i]->ct_conn = nc;
             }
+
             pkts[i]->md.conn_zone = zone;
         } else {
             pkts[i]->md.conn_state |= OVS_CS_F_INVALID;
@@ -167,6 +176,69 @@ void conntrack_run(struct conntrack *ct)
             hmap_remove(&ct->connections, &conn->node);
             delete_conn(conn);
         }
+    }
+    ovs_mutex_unlock(&ct->mutex);
+}
+
+void
+conntrack_set_mark(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
+                   uint32_t val, uint32_t mask)
+{
+    size_t i = 0;
+
+    ovs_mutex_lock(&ct->mutex);
+    for (i = 0; i < cnt; i++) {
+        struct conn *conn;
+
+        if (!(pkts[i]->md.conn_state & OVS_CS_F_TRACKED)
+            || !pkts[i]->ct_conn) {
+            continue;
+        }
+
+        pkts[i]->md.conn_mark = val | (pkts[i]->md.conn_mark & ~(mask));
+        conn = pkts[i]->ct_conn;
+        conn->mark = pkts[i]->md.conn_mark;
+    }
+    ovs_mutex_unlock(&ct->mutex);
+}
+
+void
+conntrack_set_label(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
+                    const struct ovs_key_conn_label *val,
+                    const struct ovs_key_conn_label *mask)
+{
+    size_t i = 0;
+
+    ovs_mutex_lock(&ct->mutex);
+    for (i = 0; i < cnt; i++) {
+        struct conn *conn;
+
+        if (!(pkts[i]->md.conn_state & OVS_CS_F_TRACKED)
+            || !pkts[i]->ct_conn) {
+            continue;
+        }
+
+        if (mask) {
+            ovs_u128 v, m;
+
+            /* XXX odp-util does like this. What about endianness? */
+            memcpy(&v, val, sizeof(v));
+            memcpy(&m, mask, sizeof(m));
+
+            pkts[i]->md.conn_label.u64.lo = v.u64.lo
+                                            | (pkts[i]->md.conn_label.u64.lo &
+                                               ~(m.u64.lo));
+            pkts[i]->md.conn_label.u64.hi = v.u64.hi
+                                            | (pkts[i]->md.conn_label.u64.hi &
+                                               ~(m.u64.hi));
+        } else {
+            /* XXX odp-util does this. What about endianness? */
+            memcpy(&pkts[i]->md.conn_label, val,
+                   sizeof(pkts[i]->md.conn_label));
+        }
+
+        conn = pkts[i]->ct_conn;
+        conn->label = pkts[i]->md.conn_label;
     }
     ovs_mutex_unlock(&ct->mutex);
 }
@@ -339,5 +411,6 @@ new_conn(struct dp_packet *pkt, struct conn_key *key, long long now)
 static void
 delete_conn(struct conn *conn)
 {
-    free(conn);
+    /* Postponed, as a pointer to the connection can be stored in a packet */
+    ovsrcu_postpone(free, conn);
 }

@@ -20,6 +20,7 @@
 #include <stdbool.h>
 
 #include "hmap.h"
+#include "odp-netlink.h"
 #include "openvswitch/thread.h"
 #include "openvswitch/types.h"
 
@@ -36,5 +37,10 @@ void conntrack_destroy(struct conntrack *);
 
 int conntrack(struct conntrack *, struct dp_packet **, size_t, bool commit,
               uint16_t zone, const char *helper);
+void conntrack_set_mark(struct conntrack *, struct dp_packet **, size_t,
+                        uint32_t val, uint32_t mask);
+void conntrack_set_label(struct conntrack *, struct dp_packet **, size_t,
+                         const struct ovs_key_conn_label *val,
+                         const struct ovs_key_conn_label *mask);
 
 #endif /* conntrack.h */
