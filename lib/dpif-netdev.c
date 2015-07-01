@@ -3438,6 +3438,7 @@ dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
     struct dp_netdev *dp = pmd->dp;
     int type = nl_attr_type(a);
     struct dp_netdev_port *p;
+    bool is_masked = false;
     int i;
 
     switch ((enum ovs_action_attr)type) {
@@ -3593,13 +3594,29 @@ dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
         break;
     }
 
-    case OVS_ACTION_ATTR_SET:
-    case OVS_ACTION_ATTR_SET_MASKED: {
+    case OVS_ACTION_ATTR_SET_MASKED:
+        is_masked = true;
+        /* fallthrough */
+    case OVS_ACTION_ATTR_SET: {
         const struct nlattr *set = nl_attr_get(a);
         enum ovs_key_attr set_type = nl_attr_type(set);
 
-        VLOG_WARN("Cannot execute set_field (type=%d) action in userspace.",
-                  set_type);
+        if (set_type == OVS_KEY_ATTR_CT_MARK) {
+            const uint32_t *mark;
+
+            mark = nl_attr_get(set);
+            conntrack_set_mark(&dp->conntrack, packets, cnt, *mark,
+                               is_masked ? *(mark + 1) : UINT32_MAX);
+        } else if (set_type == OVS_KEY_ATTR_CT_LABEL) {
+            const struct ovs_key_ct_label *label;
+
+            label = nl_attr_get(set);
+            conntrack_set_label(&dp->conntrack, packets, cnt, label,
+                                is_masked ? label + 1 : NULL);
+        } else {
+            OVS_NOT_REACHED();
+        }
+
         break;
     }
 
