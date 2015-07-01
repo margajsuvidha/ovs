@@ -58,6 +58,7 @@ struct dp_packet {
     uint16_t l4_ofs;               /* Transport-level header offset,
                                       or UINT16_MAX. */
     struct pkt_metadata md;
+    void *ct_conn;
 };
 
 static inline void *dp_packet_data(const struct dp_packet *);
