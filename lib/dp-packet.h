@@ -57,6 +57,7 @@ struct dp_packet {
                                     * or UINT16_MAX. */
     uint16_t l4_ofs;               /* Transport-level header offset,
                                       or UINT16_MAX. */
+    void *ct_conn;              /* Pointer to a conntrack connection */
     struct pkt_metadata md;
 };
 
