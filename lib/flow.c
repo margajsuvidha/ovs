@@ -837,10 +837,10 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
     if (flow->conn_state != 0) {
         match_set_conn_state(flow_metadata, flow->conn_state);
     }
-    if (flow->conn_zone != htons(0)) {
+    if (flow->conn_zone != 0) {
         match_set_conn_zone(flow_metadata, flow->conn_zone);
     }
-    if (flow->conn_zone != htonl(0)) {
+    if (flow->conn_mark != 0) {
         match_set_conn_mark(flow_metadata, flow->conn_mark);
     }
     if (!is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
