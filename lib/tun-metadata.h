@@ -33,7 +33,7 @@ struct tun_table;
 struct geneve_opt;
 
 #define TUN_METADATA_NUM_OPTS 64
-#define TUN_METADATA_TOT_OPT_SIZE 256
+#define TUN_METADATA_TOT_OPT_SIZE 192
 
 /* Tunnel option data, plus metadata to aid in their interpretation.
  *
