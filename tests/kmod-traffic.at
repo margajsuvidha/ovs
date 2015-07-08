@@ -474,6 +474,43 @@ AT_CHECK([ip netns exec at_ns2 wget 10.1.1.4 -t 3 -T 1 -v -o wget1.log], [4])
 OVS_KMOD_VSWITCHD_STOP
 AT_CLEANUP
 
+AT_SETUP([conntrack - ICMP related])
+CONNTRACK()
+OVS_KMOD_VSWITCHD_START(
+   [set-fail-mode br0 secure -- ])
+
+ADD_NAMESPACES(at_ns0, at_ns1)
+
+ADD_VETH(p0, at_ns0, br0, "10.1.1.1/24")
+ADD_VETH(p1, at_ns1, br0, "10.1.1.2/24")
+
+dnl Allow UDP traffic from ns0->ns1. Only allow related ICMP responses back.
+AT_DATA([flows.txt], [dnl
+priority=10,arp,action=normal
+in_port=1,udp,action=ct(commit,zone=0),set_field:1->conn_mark,2
+in_port=2,icmp,conn_state=-trk,action=ct(recirc,zone=0)
+in_port=2,icmp,conn_state=+trk+rel,conn_mark=1,action=1
+])
+
+dnl ovs-appctl vlog/set dpif:dbg
+
+AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
+
+dnl UDP packets from ns0->ns1 should solicit "destination unreachable" response.
+AT_CHECK([ip netns exec at_ns0 bash -c "echo a | nc -u 10.1.1.2 10000"])
+
+AT_CHECK([ovs-appctl revalidator/purge], [0])
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop], [0], [dnl
+ n_packets=1, n_bytes=44, udp,in_port=1 actions=ct(commit,zone=0),load:0x1->NXM_NX_CONN_MARK[[]],output:2
+ n_packets=1, n_bytes=72, conn_state=+rel+trk,conn_mark=0x1,icmp,in_port=2 actions=output:1
+ n_packets=1, n_bytes=72, conn_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
+ n_packets=2, n_bytes=84, priority=10,arp actions=NORMAL
+NXST_FLOW reply:
+])
+
+OVS_KMOD_VSWITCHD_STOP
+AT_CLEANUP
+
 AT_SETUP([conntrack - FTP])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CONNTRACK()
