@@ -291,10 +291,10 @@ size_t ovs_key_attr_size(void)
 		+ nla_total_size(4)   /* OVS_KEY_ATTR_SKB_MARK */
 		+ nla_total_size(4)   /* OVS_KEY_ATTR_DP_HASH */
 		+ nla_total_size(4)   /* OVS_KEY_ATTR_RECIRC_ID */
-		+ nla_total_size(1)   /* OVS_KEY_ATTR_CONN_STATE */
-		+ nla_total_size(2)   /* OVS_KEY_ATTR_CONN_ZONE */
-		+ nla_total_size(4)   /* OVS_KEY_ATTR_CONN_MARK */
-		+ nla_total_size(16)  /* OVS_KEY_ATTR_CONN_LABEL */
+		+ nla_total_size(1)   /* OVS_KEY_ATTR_CT_STATE */
+		+ nla_total_size(2)   /* OVS_KEY_ATTR_CT_ZONE */
+		+ nla_total_size(4)   /* OVS_KEY_ATTR_CT_MARK */
+		+ nla_total_size(16)  /* OVS_KEY_ATTR_CT_LABEL */
 		+ nla_total_size(12)  /* OVS_KEY_ATTR_ETHERNET */
 		+ nla_total_size(2)   /* OVS_KEY_ATTR_ETHERTYPE */
 		+ nla_total_size(4)   /* OVS_KEY_ATTR_VLAN */
@@ -344,10 +344,10 @@ static const struct ovs_len_tbl ovs_key_lens[OVS_KEY_ATTR_MAX + 1] = {
 	[OVS_KEY_ATTR_TUNNEL]	 = { .len = OVS_ATTR_NESTED,
 				     .next = ovs_tunnel_key_lens, },
 	[OVS_KEY_ATTR_MPLS]	 = { .len = sizeof(struct ovs_key_mpls) },
-	[OVS_KEY_ATTR_CONN_STATE] = { .len = sizeof(u8) },
-	[OVS_KEY_ATTR_CONN_ZONE] = { .len = sizeof(u16) },
-	[OVS_KEY_ATTR_CONN_MARK] = { .len = sizeof(u32) },
-	[OVS_KEY_ATTR_CONN_LABEL] = { .len = sizeof(struct ovs_key_conn_label) },
+	[OVS_KEY_ATTR_CT_STATE]  = { .len = sizeof(u8) },
+	[OVS_KEY_ATTR_CT_ZONE]   = { .len = sizeof(u16) },
+	[OVS_KEY_ATTR_CT_MARK]   = { .len = sizeof(u32) },
+	[OVS_KEY_ATTR_CT_LABEL]  = { .len = sizeof(struct ovs_key_ct_label) },
 };
 
 static bool is_all_zero(const u8 *fp, size_t size)
@@ -779,31 +779,31 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 	if (ovs_ct_verify(*attrs))
 		return -EINVAL;
 
-	if (*attrs & (1ULL << OVS_KEY_ATTR_CONN_STATE)) {
-		uint8_t conn_state = nla_get_u8(a[OVS_KEY_ATTR_CONN_STATE]);
+	if (*attrs & (1ULL << OVS_KEY_ATTR_CT_STATE)) {
+		uint8_t ct_state = nla_get_u8(a[OVS_KEY_ATTR_CT_STATE]);
 
-		SW_FLOW_KEY_PUT(match, conn.state, conn_state, is_mask);
-		*attrs &= ~(1ULL << OVS_KEY_ATTR_CONN_STATE);
+		SW_FLOW_KEY_PUT(match, ct.state, ct_state, is_mask);
+		*attrs &= ~(1ULL << OVS_KEY_ATTR_CT_STATE);
 	}
-	if (*attrs & (1ULL << OVS_KEY_ATTR_CONN_ZONE)) {
-		uint16_t conn_zone = nla_get_u16(a[OVS_KEY_ATTR_CONN_ZONE]);
+	if (*attrs & (1ULL << OVS_KEY_ATTR_CT_ZONE)) {
+		uint16_t ct_zone = nla_get_u16(a[OVS_KEY_ATTR_CT_ZONE]);
 
-		SW_FLOW_KEY_PUT(match, conn.zone, conn_zone, is_mask);
-		*attrs &= ~(1ULL << OVS_KEY_ATTR_CONN_ZONE);
+		SW_FLOW_KEY_PUT(match, ct.zone, ct_zone, is_mask);
+		*attrs &= ~(1ULL << OVS_KEY_ATTR_CT_ZONE);
 	}
-	if (*attrs & (1ULL << OVS_KEY_ATTR_CONN_MARK)) {
-		uint32_t mark = nla_get_u32(a[OVS_KEY_ATTR_CONN_MARK]);
+	if (*attrs & (1ULL << OVS_KEY_ATTR_CT_MARK)) {
+		uint32_t mark = nla_get_u32(a[OVS_KEY_ATTR_CT_MARK]);
 
-		SW_FLOW_KEY_PUT(match, conn.mark, mark, is_mask);
-		*attrs &= ~(1ULL << OVS_KEY_ATTR_CONN_MARK);
+		SW_FLOW_KEY_PUT(match, ct.mark, mark, is_mask);
+		*attrs &= ~(1ULL << OVS_KEY_ATTR_CT_MARK);
 	}
-	if (*attrs & (1ULL << OVS_KEY_ATTR_CONN_LABEL)) {
-		const struct ovs_key_conn_label *cl;
+	if (*attrs & (1ULL << OVS_KEY_ATTR_CT_LABEL)) {
+		const struct ovs_key_ct_label *cl;
 
-		cl = nla_data(a[OVS_KEY_ATTR_CONN_LABEL]);
-		SW_FLOW_KEY_MEMCPY(match, conn.label, cl->conn_label,
+		cl = nla_data(a[OVS_KEY_ATTR_CT_LABEL]);
+		SW_FLOW_KEY_MEMCPY(match, ct.label, cl->ct_label,
 				   sizeof(*cl), is_mask);
-		*attrs &= ~(1ULL << OVS_KEY_ATTR_CONN_LABEL);
+		*attrs &= ~(1ULL << OVS_KEY_ATTR_CT_LABEL);
 	}
 	return 0;
 }
@@ -1351,17 +1351,17 @@ static int __ovs_nla_put_key(const struct sw_flow_key *swkey,
 	if (nla_put_u32(skb, OVS_KEY_ATTR_SKB_MARK, output->phy.skb_mark))
 		goto nla_put_failure;
 
-	if (nla_put_u8(skb, OVS_KEY_ATTR_CONN_STATE, output->conn.state))
+	if (nla_put_u8(skb, OVS_KEY_ATTR_CT_STATE, output->ct.state))
 		goto nla_put_failure;
 
-	if (nla_put_u16(skb, OVS_KEY_ATTR_CONN_ZONE, output->conn.zone))
+	if (nla_put_u16(skb, OVS_KEY_ATTR_CT_ZONE, output->ct.zone))
 		goto nla_put_failure;
 
-	if (nla_put_u32(skb, OVS_KEY_ATTR_CONN_MARK, output->conn.mark))
+	if (nla_put_u32(skb, OVS_KEY_ATTR_CT_MARK, output->ct.mark))
 		goto nla_put_failure;
 
-	if (nla_put(skb, OVS_KEY_ATTR_CONN_LABEL,
-		    sizeof(output->conn.label), &output->conn.label))
+	if (nla_put(skb, OVS_KEY_ATTR_CT_LABEL,
+		    sizeof(output->ct.label), &output->ct.label))
 		goto nla_put_failure;
 
 	nla = nla_reserve(skb, OVS_KEY_ATTR_ETHERNET, sizeof(*eth_key));
@@ -1912,8 +1912,8 @@ static int validate_set(const struct nlattr *a,
 
 	case OVS_KEY_ATTR_PRIORITY:
 	case OVS_KEY_ATTR_SKB_MARK:
-	case OVS_KEY_ATTR_CONN_MARK:
-	case OVS_KEY_ATTR_CONN_LABEL:
+	case OVS_KEY_ATTR_CT_MARK:
+	case OVS_KEY_ATTR_CT_LABEL:
 	case OVS_KEY_ATTR_ETHERNET:
 		break;
 

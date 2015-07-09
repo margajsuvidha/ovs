@@ -21,7 +21,7 @@ struct ovs_net;
 struct sw_flow_key;
 struct sw_flow_actions;
 struct ovs_conntrack_info;
-struct ovs_key_conn_label;
+struct ovs_key_ct_label;
 
 struct ovs_ct_perdp_data {
 	bool xt_v4;
@@ -41,14 +41,14 @@ int ovs_ct_action_to_attr(const struct ovs_conntrack_info *, struct sk_buff *);
 int ovs_ct_execute(struct sk_buff *, struct sw_flow_key *,
 		   const struct ovs_conntrack_info *);
 
-int ovs_ct_set_mark(struct sk_buff *, struct sw_flow_key *, u32 conn_mark,
+int ovs_ct_set_mark(struct sk_buff *, struct sw_flow_key *, u32 ct_mark,
 		    u32 mask);
 u32 ovs_ct_get_mark(const struct sk_buff *skb);
 void ovs_ct_get_label(const struct sk_buff *skb,
-		      struct ovs_key_conn_label *label);
+		      struct ovs_key_ct_label *label);
 int ovs_ct_set_label(struct sk_buff *, struct sw_flow_key *,
-		     const struct ovs_key_conn_label *label,
-		     const struct ovs_key_conn_label *mask);
+		     const struct ovs_key_ct_label *label,
+		     const struct ovs_key_ct_label *mask);
 u8 ovs_ct_get_state(const struct sk_buff *skb);
 u16 ovs_ct_get_zone(const struct sk_buff *skb);
 bool ovs_ct_state_valid(const struct sw_flow_key *key);
@@ -109,17 +109,17 @@ static inline bool ovs_ct_state_valid(const struct sw_flow_key *key)
 }
 
 static inline int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
-				  u32 conn_mark, u32 mask)
+				  u32 ct_mark, u32 mask)
 {
 	return -ENOTSUPP;
 }
 
 static inline void ovs_ct_get_label(const struct sk_buff *skb,
-				    struct ovs_key_conn_label *label) { }
+				    struct ovs_key_ct_label *label) { }
 static inline int ovs_ct_set_label(struct sk_buff *skb,
 				   struct sw_flow_key *key,
-				   const struct ovs_key_conn_label *label,
-				   const struct ovs_key_conn_label *mask)
+				   const struct ovs_key_ct_label *label,
+				   const struct ovs_key_ct_label *mask)
 {
 	return -ENOTSUPP;
 }

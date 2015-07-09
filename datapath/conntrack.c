@@ -127,7 +127,7 @@ u32 ovs_ct_get_mark(const struct sk_buff *skb)
 }
 
 void ovs_ct_get_label(const struct sk_buff *skb,
-		      struct ovs_key_conn_label *label)
+		      struct ovs_key_ct_label *label)
 {
 	enum ip_conntrack_info ctinfo;
 	struct nf_conn_labels *cl = NULL;
@@ -157,7 +157,7 @@ static bool __ovs_ct_state_valid(u8 state)
 
 bool ovs_ct_state_valid(const struct sw_flow_key *key)
 {
-	return __ovs_ct_state_valid(key->conn.state);
+	return __ovs_ct_state_valid(key->ct.state);
 }
 
 /* 'skb' should already be pulled to nh_ofs. */
@@ -247,10 +247,10 @@ static bool skb_nfct_cached(const struct net *net, const struct sk_buff *skb,
 static void __ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
 				u8 state, u16 zone)
 {
-	key->conn.state = state;
-	key->conn.zone = zone;
-	key->conn.mark = ovs_ct_get_mark(skb);
-	ovs_ct_get_label(skb, &key->conn.label);
+	key->ct.state = state;
+	key->ct.zone = zone;
+	key->ct.mark = ovs_ct_get_mark(skb);
+	ovs_ct_get_label(skb, &key->ct.label);
 }
 
 static void ovs_ct_update_key(struct sk_buff *skb, struct sw_flow_key *key,
@@ -338,8 +338,8 @@ static int ovs_ct_commit(struct net *net, struct sw_flow_key *key,
 	u8 state;
 	int err;
 
-	state = key->conn.state;
-	if (key->conn.zone == info->zone &&
+	state = key->ct.state;
+	if (key->ct.zone == info->zone &&
 	    ((state & OVS_CS_F_TRACKED) && !(state & OVS_CS_F_NEW))) {
 		/* Previous lookup has shown that this connection is already
 		 * tracked and committed. Skip committing. */
@@ -383,7 +383,7 @@ int ovs_ct_execute(struct sk_buff *skb, struct sw_flow_key *key,
 }
 
 int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
-		    u32 conn_mark, u32 mask)
+		    u32 ct_mark, u32 mask)
 {
 #ifdef CONFIG_NF_CONNTRACK_MARK
 	enum ip_conntrack_info ctinfo;
@@ -395,11 +395,11 @@ int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
 	if (!ct)
 		return -EINVAL;
 
-	new_mark = conn_mark | (ct->mark & ~(mask));
+	new_mark = ct_mark | (ct->mark & ~(mask));
 	if (ct->mark != new_mark) {
 		ct->mark = new_mark;
 		nf_conntrack_event_cache(IPCT_MARK, ct);
-		key->conn.mark = new_mark;
+		key->ct.mark = new_mark;
 	}
 
 	return 0;
@@ -409,8 +409,8 @@ int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
 }
 
 int ovs_ct_set_label(struct sk_buff *skb, struct sw_flow_key *key,
-		     const struct ovs_key_conn_label *label,
-		     const struct ovs_key_conn_label *mask)
+		     const struct ovs_key_ct_label *label,
+		     const struct ovs_key_ct_label *mask)
 {
 #ifdef CONFIG_NF_CONNTRACK_LABELS
 	enum ip_conntrack_info ctinfo;
@@ -437,7 +437,7 @@ int ovs_ct_set_label(struct sk_buff *skb, struct sw_flow_key *key,
 	if (err)
 		return err;
 
-	ovs_ct_get_label(skb, &key->conn.label);
+	ovs_ct_get_label(skb, &key->ct.label);
 	return 0;
 #else
 	return -ENOTSUPP;
@@ -449,15 +449,15 @@ int ovs_ct_verify(u64 attrs)
 	int err = 0;
 
 #ifndef CONFIG_NF_CONNTRACK_ZONES
-	if (attrs & (1ULL << OVS_KEY_ATTR_CONN_ZONE))
+	if (attrs & (1ULL << OVS_KEY_ATTR_CT_ZONE))
 		return -ENOTSUPP;
 #endif
 #ifndef CONFIG_NF_CONNTRACK_MARK
-	if (attrs & (1ULL << OVS_KEY_ATTR_CONN_MARK))
+	if (attrs & (1ULL << OVS_KEY_ATTR_CT_MARK))
 		return -ENOTSUPP;
 #endif
 #ifndef CONFIG_NF_CONNTRACK_LABELS
-	if (attrs & (1ULL << OVS_KEY_ATTR_CONN_LABEL))
+	if (attrs & (1ULL << OVS_KEY_ATTR_CT_LABEL))
 		return -ENOTSUPP;
 #endif
 
@@ -660,7 +660,7 @@ static struct xt_match *load_connlabel(struct net *net)
 		goto exit;
 	}
 
-	info.bit = sizeof(struct ovs_key_conn_label) * 8 - 1;
+	info.bit = sizeof(struct ovs_key_ct_label) * 8 - 1;
 	info.options = 0;
 
 	mtpar.net	= net;

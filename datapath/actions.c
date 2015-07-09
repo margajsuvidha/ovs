@@ -804,14 +804,14 @@ static int execute_masked_set_action(struct sk_buff *skb,
 								    __be32 *));
 		break;
 
-	case OVS_KEY_ATTR_CONN_MARK:
+	case OVS_KEY_ATTR_CT_MARK:
 		err = ovs_ct_set_mark(skb, flow_key, nla_get_u32(a),
 				      *get_mask(a, __be32 *));
 		break;
 
-	case OVS_KEY_ATTR_CONN_LABEL: {
+	case OVS_KEY_ATTR_CT_LABEL: {
 		err = ovs_ct_set_label(skb, flow_key, nla_data(a),
-				get_mask(a, struct ovs_key_conn_label *));
+				get_mask(a, struct ovs_key_ct_label *));
 		break;
 	}
 	}
