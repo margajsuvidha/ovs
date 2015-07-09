@@ -399,7 +399,7 @@ int ovs_ct_set_mark(struct sk_buff *skb, struct sw_flow_key *key,
 	if (ct->mark != new_mark) {
 		ct->mark = new_mark;
 		nf_conntrack_event_cache(IPCT_MARK, ct);
-		key->conn.mark = conn_mark;
+		key->conn.mark = new_mark;
 	}
 
 	return 0;

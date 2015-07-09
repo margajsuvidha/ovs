@@ -1051,6 +1051,16 @@ parse_gre_header(struct dp_packet *packet,
     return hlen;
 }
 
+static void
+pkt_metadata_init_tnl(struct pkt_metadata *md)
+{
+    memset(md, 0, offsetof(struct pkt_metadata, tunnel.metadata));
+
+    /* If 'opt_map' is zero then none of the rest of the tunnel metadata
+     * will be read, so we can skip clearing it. */
+    md->tunnel.metadata.opt_map = 0;
+}
+
 static int
 netdev_gre_pop_header(struct dp_packet *packet)
 {
@@ -1059,7 +1069,7 @@ netdev_gre_pop_header(struct dp_packet *packet)
     int hlen = sizeof(struct eth_header) +
                sizeof(struct ip_header) + 4;
 
-    memset(md, 0, sizeof *md);
+    pkt_metadata_init_tnl(md);
     if (hlen > dp_packet_size(packet)) {
         return EINVAL;
     }
@@ -1143,7 +1153,7 @@ netdev_vxlan_pop_header(struct dp_packet *packet)
     struct flow_tnl *tnl = &md->tunnel;
     struct vxlanhdr *vxh;
 
-    memset(md, 0, sizeof *md);
+    pkt_metadata_init_tnl(md);
     if (VXLAN_HLEN > dp_packet_size(packet)) {
         return EINVAL;
     }
@@ -1199,8 +1209,9 @@ netdev_geneve_pop_header(struct dp_packet *packet)
     struct flow_tnl *tnl = &md->tunnel;
     struct genevehdr *gnh;
     unsigned int hlen;
+    int err;
 
-    memset(md, 0, sizeof *md);
+    pkt_metadata_init_tnl(md);
     if (GENEVE_BASE_HLEN > dp_packet_size(packet)) {
         VLOG_WARN_RL(&err_rl, "geneve packet too small: min header=%u packet size=%u\n",
                      (unsigned int)GENEVE_BASE_HLEN, dp_packet_size(packet));
@@ -1224,12 +1235,6 @@ netdev_geneve_pop_header(struct dp_packet *packet)
         return EINVAL;
     }
 
-    if (gnh->opt_len && gnh->critical) {
-        VLOG_WARN_RL(&err_rl, "unknown geneve critical options: %"PRIu8" bytes\n",
-                     gnh->opt_len * 4);
-        return EINVAL;
-    }
-
     if (gnh->proto_type != htons(ETH_TYPE_TEB)) {
         VLOG_WARN_RL(&err_rl, "unknown geneve encapsulated protocol: %#x\n",
                      ntohs(gnh->proto_type));
@@ -1239,6 +1244,13 @@ netdev_geneve_pop_header(struct dp_packet *packet)
     tnl->flags |= gnh->oam ? FLOW_TNL_F_OAM : 0;
     tnl->tun_id = htonll(ntohl(get_16aligned_be32(&gnh->vni)) >> 8);
     tnl->flags |= FLOW_TNL_F_KEY;
+
+    err = tun_metadata_from_geneve_header(gnh->options, gnh->opt_len * 4,
+                                          &tnl->metadata);
+    if (err) {
+        VLOG_WARN_RL(&err_rl, "invalid geneve options");
+        return err;
+    }
 
     dp_packet_reset_packet(packet, hlen);
 
@@ -1253,6 +1265,8 @@ netdev_geneve_build_header(const struct netdev *netdev,
     struct netdev_vport *dev = netdev_vport_cast(netdev);
     struct netdev_tunnel_config *tnl_cfg;
     struct genevehdr *gnh;
+    int opt_len;
+    bool crit_opt;
 
     /* XXX: RCUfy tnl_cfg. */
     ovs_mutex_lock(&dev->mutex);
@@ -1260,12 +1274,19 @@ netdev_geneve_build_header(const struct netdev *netdev,
 
     gnh = udp_build_header(tnl_cfg, tnl_flow, data);
 
-    gnh->oam = !!(tnl_flow->tunnel.flags & FLOW_TNL_F_OAM);
-    gnh->proto_type = htons(ETH_TYPE_TEB);
     put_16aligned_be32(&gnh->vni, htonl(ntohll(tnl_flow->tunnel.tun_id) << 8));
 
     ovs_mutex_unlock(&dev->mutex);
-    data->header_len = GENEVE_BASE_HLEN;
+
+    opt_len = tun_metadata_to_geneve_header(&tnl_flow->tunnel.metadata,
+                                            gnh->options, &crit_opt);
+
+    gnh->opt_len = opt_len / 4;
+    gnh->oam = !!(tnl_flow->tunnel.flags & FLOW_TNL_F_OAM);
+    gnh->critical = crit_opt ? 1 : 0;
+    gnh->proto_type = htons(ETH_TYPE_TEB);
+
+    data->header_len = GENEVE_BASE_HLEN + opt_len;
     data->tnl_type = OVS_VPORT_TYPE_GENEVE;
     return 0;
 }

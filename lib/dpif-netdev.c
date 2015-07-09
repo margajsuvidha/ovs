@@ -88,12 +88,8 @@ static struct shash dp_netdevs OVS_GUARDED_BY(dp_netdev_mutex)
 static struct vlog_rate_limit upcall_rl = VLOG_RATE_LIMIT_INIT(600, 600);
 
 static struct odp_support dp_netdev_support = {
-    .variable_length_userdata = true,
     .max_mpls_depth = SIZE_MAX,
-    .masked_set_action = true,
     .recirc = true,
-    .tnl_push_pop = true,
-    .ufid = true
 };
 
 /* Stores a miniflow with inline values */
@@ -244,7 +240,7 @@ enum pmd_cycles_counter_type {
 
 /* A port in a netdev-based datapath. */
 struct dp_netdev_port {
-    struct pkt_metadata md;
+    odp_port_t port_no;
     struct netdev *netdev;
     struct cmap_node node;      /* Node in dp_netdev's 'ports'. */
     struct netdev_saved_flags *sf;
@@ -1094,7 +1090,7 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
         }
     }
     port = xzalloc(sizeof *port);
-    port->md = PKT_METADATA_INITIALIZER(port_no);
+    port->port_no = port_no;
     port->netdev = netdev;
     port->rxq = xmalloc(sizeof *port->rxq * netdev_n_rxq(netdev));
     port->type = xstrdup(type);
@@ -1199,7 +1195,7 @@ dp_netdev_lookup_port(const struct dp_netdev *dp, odp_port_t port_no)
     struct dp_netdev_port *port;
 
     CMAP_FOR_EACH_WITH_HASH (port, node, hash_port_no(port_no), &dp->ports) {
-        if (port->md.in_port.odp_port == port_no) {
+        if (port->port_no == port_no) {
             return port;
         }
     }
@@ -1309,8 +1305,7 @@ static void
 do_del_port(struct dp_netdev *dp, struct dp_netdev_port *port)
     OVS_REQUIRES(dp->port_mutex)
 {
-    cmap_remove(&dp->ports, &port->node,
-                hash_odp_port(port->md.in_port.odp_port));
+    cmap_remove(&dp->ports, &port->node, hash_odp_port(port->port_no));
     seq_change(dp->port_seq);
     if (netdev_is_pmd(port->netdev)) {
         int numa_id = netdev_get_numa_id(port->netdev);
@@ -1332,7 +1327,7 @@ answer_port_query(const struct dp_netdev_port *port,
 {
     dpif_port->name = xstrdup(netdev_get_name(port->netdev));
     dpif_port->type = xstrdup(port->type);
-    dpif_port->port_no = port->md.in_port.odp_port;
+    dpif_port->port_no = port->port_no;
 }
 
 static int
@@ -1459,7 +1454,7 @@ dpif_netdev_port_dump_next(const struct dpif *dpif, void *state_,
         state->name = xstrdup(netdev_get_name(port->netdev));
         dpif_port->name = state->name;
         dpif_port->type = port->type;
-        dpif_port->port_no = port->md.in_port.odp_port;
+        dpif_port->port_no = port->port_no;
 
         retval = 0;
     } else {
@@ -1850,6 +1845,7 @@ dp_netdev_flow_to_dpif_flow(const struct dp_netdev_flow *netdev_flow,
         offset = mask_buf->size;
         flow->mask = ofpbuf_tail(mask_buf);
         odp_parms.odp_in_port = wc.masks.in_port.odp_port;
+        odp_parms.key_buf = key_buf;
         odp_flow_key_from_mask(&odp_parms, mask_buf);
         flow->mask_len = mask_buf->size - offset;
 
@@ -1874,7 +1870,8 @@ dpif_netdev_mask_from_nlattrs(const struct nlattr *key, uint32_t key_len,
     if (mask_key_len) {
         enum odp_key_fitness fitness;
 
-        fitness = odp_flow_key_to_mask(mask_key, mask_key_len, mask, flow);
+        fitness = odp_flow_key_to_mask(mask_key, mask_key_len, key, key_len,
+                                       mask, flow);
         if (fitness) {
             /* This should not happen: it indicates that
              * odp_flow_key_from_mask() and odp_flow_key_to_mask()
@@ -2552,7 +2549,7 @@ dp_netdev_process_rxq_port(struct dp_netdev_pmd_thread *pmd,
 
         /* XXX: initialize md in netdev implementation. */
         for (i = 0; i < cnt; i++) {
-            packets[i]->md = port->md;
+            pkt_metadata_init(&packets[i]->md, port->port_no);
         }
         cycles_count_start(pmd);
         dp_netdev_input(pmd, packets, cnt);
@@ -2689,6 +2686,11 @@ pmd_thread_main(void *f_)
 reload:
     emc_cache_init(&pmd->flow_cache);
     poll_cnt = pmd_load_queues(pmd, &poll_list, poll_cnt);
+
+    /* List port/core affinity */
+    for (i = 0; i < poll_cnt; i++) {
+       VLOG_INFO("Core %d processing port \'%s\'\n", pmd->core_id, netdev_get_name(poll_list[i].port->netdev));
+    }
 
     /* Signal here to make sure the pmd finishes
      * reloading the updated configuration. */
@@ -3674,12 +3676,12 @@ dpif_dummy_change_port_number(struct unixctl_conn *conn, int argc OVS_UNUSED,
     }
 
     /* Remove old port. */
-    cmap_remove(&dp->ports, &old_port->node, hash_port_no(old_port->md.in_port.odp_port));
+    cmap_remove(&dp->ports, &old_port->node, hash_port_no(old_port->port_no));
     ovsrcu_postpone(free, old_port);
 
     /* Insert new port (cmap semantics mean we cannot re-insert 'old_port'). */
     new_port = xmemdup(old_port, sizeof *old_port);
-    new_port->md.in_port.odp_port = port_no;
+    new_port->port_no = port_no;
     cmap_insert(&dp->ports, &new_port->node, hash_port_no(port_no));
 
     seq_change(dp->port_seq);
@@ -3710,7 +3712,7 @@ dpif_dummy_delete_port(struct unixctl_conn *conn, int argc OVS_UNUSED,
     ovs_mutex_lock(&dp->port_mutex);
     if (get_port_by_name(dp, argv[2], &port)) {
         unixctl_command_reply_error(conn, "unknown port");
-    } else if (port->md.in_port.odp_port == ODPP_LOCAL) {
+    } else if (port->port_no == ODPP_LOCAL) {
         unixctl_command_reply_error(conn, "can't delete local port");
     } else {
         do_del_port(dp, port);
@@ -3945,14 +3947,14 @@ dpcls_lookup(const struct dpcls *cls, const struct netdev_flow_key keys[],
             }
 
             /* Compute hashes for the remaining keys. */
-            ULONG_FOR_EACH_1(i, map) {
+            ULLONG_FOR_EACH_1(i, map) {
                 hashes[i] = netdev_flow_key_hash_in_mask(&mkeys[i],
                                                          &subtable->mask);
             }
             /* Lookup. */
             map = cmap_find_batch(&subtable->rules, map, hashes, nodes);
             /* Check results. */
-            ULONG_FOR_EACH_1(i, map) {
+            ULLONG_FOR_EACH_1(i, map) {
                 struct dpcls_rule *rule;
 
                 CMAP_NODE_FOR_EACH (rule, cmap_node, nodes[i]) {
@@ -3961,7 +3963,7 @@ dpcls_lookup(const struct dpcls *cls, const struct netdev_flow_key keys[],
                         goto next;
                     }
                 }
-                ULONG_SET0(map, i);   /* Did not match. */
+                ULLONG_SET0(map, i);  /* Did not match. */
             next:
                 ;                     /* Keep Sparse happy. */
             }

@@ -35,6 +35,7 @@
 #include "packets.h"
 #include "simap.h"
 #include "timeval.h"
+#include "tun-metadata.h"
 #include "unaligned.h"
 #include "util.h"
 #include "uuid.h"
@@ -68,6 +69,17 @@ static void format_odp_key_attr(const struct nlattr *a,
                                 const struct nlattr *ma,
                                 const struct hmap *portno_names, struct ds *ds,
                                 bool verbose);
+
+struct geneve_scan {
+    struct geneve_opt d[63];
+    int len;
+};
+
+static int scan_geneve(const char *s, struct geneve_scan *key,
+                       struct geneve_scan *mask);
+static void format_geneve_opts(const struct geneve_opt *opt,
+                               const struct geneve_opt *mask, int opts_len,
+                               struct ds *, bool verbose);
 
 static struct nlattr *generate_all_wildcard_mask(const struct attr_len_tbl tbl[],
                                                  int max, struct ofpbuf *,
@@ -586,9 +598,19 @@ format_odp_tnl_push_header(struct ds *ds, struct ovs_action_push_tnl *data)
 
         gnh = format_udp_tnl_push_header(ds, ip);
 
-        ds_put_format(ds, "geneve(%svni=0x%"PRIx32")",
+        ds_put_format(ds, "geneve(%s%svni=0x%"PRIx32,
                       gnh->oam ? "oam," : "",
+                      gnh->critical ? "crit," : "",
                       ntohl(get_16aligned_be32(&gnh->vni)) >> 8);
+ 
+        if (gnh->opt_len) {
+            ds_put_cstr(ds, ",options(");
+            format_geneve_opts(gnh->options, NULL, gnh->opt_len * 4,
+                               ds, false);
+            ds_put_char(ds, ')');
+        }
+
+        ds_put_char(ds, ')');
     } else if (data->tnl_type == OVS_VPORT_TYPE_GRE) {
         const struct gre_base_hdr *greh;
         ovs_16aligned_be32 *options;
@@ -991,17 +1013,41 @@ ovs_parse_tnl_push(const char *s, struct ovs_action_push_tnl *data)
             struct genevehdr *gnh = (struct genevehdr *) (udp + 1);
 
             memset(gnh, 0, sizeof *gnh);
+            header_len = sizeof *eth + sizeof *ip +
+                         sizeof *udp + sizeof *gnh;
+
             if (ovs_scan_len(s, &n, "oam,")) {
                 gnh->oam = 1;
             }
-            if (!ovs_scan_len(s, &n, "vni=0x%"SCNx32"))", &vni)) {
+            if (ovs_scan_len(s, &n, "crit,")) {
+                gnh->critical = 1;
+            }
+            if (!ovs_scan_len(s, &n, "vni=%"SCNi32, &vni)) {
                 return -EINVAL;
             }
+            if (ovs_scan_len(s, &n, ",options(")) {
+                struct geneve_scan options;
+                int len;
+
+                memset(&options, 0, sizeof options);
+                len = scan_geneve(s + n, &options, NULL);
+                if (!len) {
+                    return -EINVAL;
+                }
+
+                memcpy(gnh->options, options.d, options.len);
+                gnh->opt_len = options.len / 4;
+                header_len += options.len;
+
+                n += len;
+            }
+            if (!ovs_scan_len(s, &n, "))")) {
+                return -EINVAL;
+            }
+
             gnh->proto_type = htons(ETH_TYPE_TEB);
             put_16aligned_be32(&gnh->vni, htonl(vni << 8));
             tnl_type = OVS_VPORT_TYPE_GENEVE;
-            header_len = sizeof *eth + sizeof *ip +
-                         sizeof *udp + sizeof *gnh;
         } else {
             return -EINVAL;
         }
@@ -1452,41 +1498,10 @@ ovs_frag_type_to_string(enum ovs_frag_type type)
     }
 }
 
-#define GENEVE_OPT(class, type) ((OVS_FORCE uint32_t)(class) << 8 | (type))
-static int
-parse_geneve_opts(const struct nlattr *attr)
-{
-    int opts_len = nl_attr_get_size(attr);
-    const struct geneve_opt *opt = nl_attr_get(attr);
-
-    while (opts_len > 0) {
-        int len;
-
-        if (opts_len < sizeof(*opt)) {
-            return -EINVAL;
-        }
-
-        len = sizeof(*opt) + opt->length * 4;
-        if (len > opts_len) {
-            return -EINVAL;
-        }
-
-        switch (GENEVE_OPT(opt->opt_class, opt->type)) {
-        default:
-            if (opt->type & GENEVE_CRIT_OPT_TYPE) {
-                return -EINVAL;
-            }
-        };
-
-        opt = opt + len / sizeof(*opt);
-        opts_len -= len;
-    };
-
-    return 0;
-}
-
-enum odp_key_fitness
-odp_tun_key_from_attr(const struct nlattr *attr, struct flow_tnl *tun)
+static enum odp_key_fitness
+odp_tun_key_from_attr__(const struct nlattr *attr,
+                        const struct nlattr *flow_attrs, size_t flow_attr_len,
+                        const struct flow_tnl *src_tun, struct flow_tnl *tun)
 {
     unsigned int left;
     const struct nlattr *a;
@@ -1555,15 +1570,14 @@ odp_tun_key_from_attr(const struct nlattr *attr, struct flow_tnl *tun)
 
             break;
         }
-        case OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS: {
-            if (parse_geneve_opts(a)) {
+        case OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS:
+            if (tun_metadata_from_geneve_nlattr(a, flow_attrs, flow_attr_len,
+                                                &src_tun->metadata,
+                                                &tun->metadata)) {
                 return ODP_FIT_ERROR;
             }
-            /* It is necessary to reproduce options exactly (including order)
-             * so it's easiest to just echo them back. */
-            unknown = true;
             break;
-        }
+
         default:
             /* Allow this to show up as unexpected, if there are unknown
              * tunnel attribute, eventually resulting in ODP_FIT_TOO_MUCH. */
@@ -1581,8 +1595,17 @@ odp_tun_key_from_attr(const struct nlattr *attr, struct flow_tnl *tun)
     return ODP_FIT_PERFECT;
 }
 
+enum odp_key_fitness
+odp_tun_key_from_attr(const struct nlattr *attr, struct flow_tnl *tun)
+{
+    memset(tun, 0, sizeof *tun);
+    return odp_tun_key_from_attr__(attr, NULL, 0, NULL, tun);
+}
+
 static void
-tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key)
+tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key,
+                const struct flow_tnl *tun_flow_key,
+                const struct ofpbuf *key_buf)
 {
     size_t tun_key_ofs;
 
@@ -1624,6 +1647,13 @@ tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key)
         nl_msg_put_u32(a, OVS_VXLAN_EXT_GBP,
                        (tun_key->gbp_flags << 16) | ntohs(tun_key->gbp_id));
         nl_msg_end_nested(a, vxlan_opts_ofs);
+    }
+
+    if (tun_key == tun_flow_key) {
+        tun_metadata_to_geneve_nlattr_flow(&tun_key->metadata, a);
+    } else {
+        tun_metadata_to_geneve_nlattr_mask(key_buf, &tun_key->metadata,
+                                           &tun_flow_key->metadata, a);
     }
 
     nl_msg_end_nested(a, tun_key_ofs);
@@ -2024,21 +2054,10 @@ format_odp_tun_vxlan_opt(const struct nlattr *attr,
 #define MASK(PTR, FIELD) PTR ? &PTR->FIELD : NULL
 
 static void
-format_odp_tun_geneve(const struct nlattr *attr,
-                      const struct nlattr *mask_attr, struct ds *ds,
-                      bool verbose)
+format_geneve_opts(const struct geneve_opt *opt,
+                   const struct geneve_opt *mask, int opts_len,
+                   struct ds *ds, bool verbose)
 {
-    int opts_len = nl_attr_get_size(attr);
-    const struct geneve_opt *opt = nl_attr_get(attr);
-    const struct geneve_opt *mask = mask_attr ?
-                                    nl_attr_get(mask_attr) : NULL;
-
-    if (mask && nl_attr_get_size(attr) != nl_attr_get_size(mask_attr)) {
-        ds_put_format(ds, "value len %"PRIuSIZE" different from mask len %"PRIuSIZE,
-                      nl_attr_get_size(attr), nl_attr_get_size(mask_attr));
-        return;
-    }
-
     while (opts_len > 0) {
         unsigned int len;
         uint8_t data_len, data_len_mask;
@@ -2086,6 +2105,25 @@ format_odp_tun_geneve(const struct nlattr *attr,
         }
         opts_len -= len;
     };
+}
+
+static void
+format_odp_tun_geneve(const struct nlattr *attr,
+                      const struct nlattr *mask_attr, struct ds *ds,
+                      bool verbose)
+{
+    int opts_len = nl_attr_get_size(attr);
+    const struct geneve_opt *opt = nl_attr_get(attr);
+    const struct geneve_opt *mask = mask_attr ?
+                                    nl_attr_get(mask_attr) : NULL;
+
+    if (mask && nl_attr_get_size(attr) != nl_attr_get_size(mask_attr)) {
+        ds_put_format(ds, "value len %"PRIuSIZE" different from mask len %"PRIuSIZE,
+                      nl_attr_get_size(attr), nl_attr_get_size(mask_attr));
+        return;
+    }
+
+    format_geneve_opts(opt, mask, opts_len, ds, verbose);
 }
 
 static void
@@ -3139,11 +3177,6 @@ scan_vxlan_gbp(const char *s, uint32_t *key, uint32_t *mask)
     return 0;
 }
 
-struct geneve_scan {
-    struct geneve_opt d[63];
-    int len;
-};
-
 static int
 scan_geneve(const char *s, struct geneve_scan *key, struct geneve_scan *mask)
 {
@@ -3681,7 +3714,8 @@ odp_flow_key_from_flow__(const struct odp_flow_key_parms *parms,
     nl_msg_put_u32(buf, OVS_KEY_ATTR_PRIORITY, data->skb_priority);
 
     if (flow->tunnel.ip_dst || export_mask) {
-        tun_key_to_attr(buf, &data->tunnel);
+        tun_key_to_attr(buf, &data->tunnel, &parms->flow->tunnel,
+                        parms->key_buf);
     }
 
     nl_msg_put_u32(buf, OVS_KEY_ATTR_SKB_MARK, data->pkt_mark);
@@ -3876,7 +3910,7 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
     nl_msg_put_u32(buf, OVS_KEY_ATTR_PRIORITY, md->skb_priority);
 
     if (md->tunnel.ip_dst) {
-        tun_key_to_attr(buf, &md->tunnel);
+        tun_key_to_attr(buf, &md->tunnel, &md->tunnel, NULL);
     }
 
     nl_msg_put_u32(buf, OVS_KEY_ATTR_SKB_MARK, md->pkt_mark);
@@ -3913,7 +3947,7 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
         1u << OVS_KEY_ATTR_SKB_MARK | 1u << OVS_KEY_ATTR_TUNNEL |
         1u << OVS_KEY_ATTR_IN_PORT;
 
-    *md = PKT_METADATA_INITIALIZER(ODPP_NONE);
+    pkt_metadata_init(md, ODPP_NONE);
 
     NL_ATTR_FOR_EACH (nla, left, key, key_len) {
         uint16_t type = nl_attr_type(nla);
@@ -4473,6 +4507,7 @@ parse_8021q_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
 
 static enum odp_key_fitness
 odp_flow_key_to_flow__(const struct nlattr *key, size_t key_len,
+                       const struct nlattr *src_key, size_t src_key_len,
                        struct flow *flow, const struct flow *src_flow)
 {
     const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1];
@@ -4535,7 +4570,9 @@ odp_flow_key_to_flow__(const struct nlattr *key, size_t key_len,
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_TUNNEL)) {
         enum odp_key_fitness res;
 
-        res = odp_tun_key_from_attr(attrs[OVS_KEY_ATTR_TUNNEL], &flow->tunnel);
+        res = odp_tun_key_from_attr__(attrs[OVS_KEY_ATTR_TUNNEL], src_key,
+                                      src_key_len, &src_flow->tunnel,
+                                      &flow->tunnel);
         if (res == ODP_FIT_ERROR) {
             return ODP_FIT_ERROR;
         } else if (res == ODP_FIT_PERFECT) {
@@ -4607,18 +4644,21 @@ enum odp_key_fitness
 odp_flow_key_to_flow(const struct nlattr *key, size_t key_len,
                      struct flow *flow)
 {
-   return odp_flow_key_to_flow__(key, key_len, flow, flow);
+   return odp_flow_key_to_flow__(key, key_len, NULL, 0, flow, flow);
 }
 
-/* Converts the 'key_len' bytes of OVS_KEY_ATTR_* attributes in 'key' to a mask
- * structure in 'mask'.  'flow' must be a previously translated flow
- * corresponding to 'mask'.  Returns an ODP_FIT_* value that indicates how well
- * 'key' fits our expectations for what a flow key should contain. */
+/* Converts the 'mask_key_len' bytes of OVS_KEY_ATTR_* attributes in 'mask_key'
+ * to a mask structure in 'mask'.  'flow' must be a previously translated flow
+ * corresponding to 'mask' and similarly flow_key/flow_key_len must be the
+ * attributes from that flow.  Returns an ODP_FIT_* value that indicates how
+ * well 'key' fits our expectations for what a flow key should contain. */
 enum odp_key_fitness
-odp_flow_key_to_mask(const struct nlattr *key, size_t key_len,
+odp_flow_key_to_mask(const struct nlattr *mask_key, size_t mask_key_len,
+                     const struct nlattr *flow_key, size_t flow_key_len,
                      struct flow *mask, const struct flow *flow)
 {
-   return odp_flow_key_to_flow__(key, key_len, mask, flow);
+   return odp_flow_key_to_flow__(mask_key, mask_key_len, flow_key, flow_key_len,
+                                 mask, flow);
 }
 
 /* Returns 'fitness' as a string, for use in debug messages. */
@@ -4688,7 +4728,7 @@ odp_put_tunnel_action(const struct flow_tnl *tunnel,
                       struct ofpbuf *odp_actions)
 {
     size_t offset = nl_msg_start_nested(odp_actions, OVS_ACTION_ATTR_SET);
-    tun_key_to_attr(odp_actions, tunnel);
+    tun_key_to_attr(odp_actions, tunnel, tunnel, NULL);
     nl_msg_end_nested(odp_actions, offset);
 }
 

@@ -1134,7 +1134,6 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
             memcpy(&cookie, nl_attr_get(userdata), sizeof cookie.ipfix);
 
             if (upcall->out_tun_key) {
-                memset(&output_tunnel_key, 0, sizeof output_tunnel_key);
                 odp_tun_key_from_attr(upcall->out_tun_key,
                                       &output_tunnel_key);
             }
@@ -1368,7 +1367,7 @@ ukey_create_from_upcall(struct upcall *upcall)
         .mask = &upcall->xout.wc.masks,
     };
 
-    odp_parms.support = *ofproto_dpif_get_support(upcall->ofproto);
+    odp_parms.support = ofproto_dpif_get_support(upcall->ofproto)->odp;
     if (upcall->key_len) {
         ofpbuf_use_const(&keybuf, upcall->key, upcall->key_len);
     } else {
@@ -1383,6 +1382,8 @@ ukey_create_from_upcall(struct upcall *upcall)
     ofpbuf_use_stack(&maskbuf, &maskstub, sizeof maskstub);
     if (megaflow) {
         odp_parms.odp_in_port = ODPP_NONE;
+        odp_parms.key_buf = &keybuf;
+
         odp_flow_key_from_mask(&odp_parms, &maskbuf);
     }
 
@@ -1732,8 +1733,8 @@ revalidate_ukey(struct udpif *udpif, struct udpif_key *ukey,
         goto exit;
     }
 
-    if (odp_flow_key_to_mask(ukey->mask, ukey->mask_len, &dp_mask, &flow)
-        == ODP_FIT_ERROR) {
+    if (odp_flow_key_to_mask(ukey->mask, ukey->mask_len, ukey->key,
+                             ukey->key_len, &dp_mask, &flow) == ODP_FIT_ERROR) {
         goto exit;
     }
 

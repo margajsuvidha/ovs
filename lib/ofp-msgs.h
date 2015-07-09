@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -369,6 +369,12 @@ enum ofpraw {
     /* OFPST 1.3+ (12): struct ofp13_table_features, uint8_t[8][]. */
     OFPRAW_OFPST13_TABLE_FEATURES_REPLY,
 
+    /* OFPST 1.4+ (15): void. */
+    OFPRAW_OFPST14_TABLE_DESC_REQUEST,
+
+    /* OFPST 1.4+ (15): struct ofp14_table_desc, uint8_t[8][]. */
+    OFPRAW_OFPST14_TABLE_DESC_REPLY,
+
     /* OFPST 1.0-1.4 (13): void. */
     OFPRAW_OFPST10_PORT_DESC_REQUEST,
     /* OFPST 1.5+ (13): ovs_be32. */
@@ -419,6 +425,15 @@ enum ofpraw {
 
     /* NXT 1.0+ (23): void. */
     OFPRAW_NXT_FLOW_MONITOR_RESUMED,
+
+    /* NXT 1.0+ (24): struct nx_geneve_table_mod, struct nx_geneve_map[]. */
+    OFPRAW_NXT_GENEVE_TABLE_MOD,
+
+    /* NXT 1.0+ (25): void. */
+    OFPRAW_NXT_GENEVE_TABLE_REQUEST,
+
+    /* NXT 1.0+ (26): struct nx_geneve_table_reply, struct nx_geneve_map[]. */
+    OFPRAW_NXT_GENEVE_TABLE_REPLY,
 };
 
 /* Decoding messages into OFPRAW_* values. */
@@ -602,6 +617,10 @@ enum ofptype {
 
     OFPTYPE_TABLE_FEATURES_STATS_REPLY, /* OFPRAW_OFPST13_TABLE_FEATURES_REPLY. */
 
+    OFPTYPE_TABLE_DESC_REQUEST,      /* OFPRAW_OFPST14_TABLE_DESC_REQUEST. */
+
+    OFPTYPE_TABLE_DESC_REPLY,        /* OFPRAW_OFPST14_TABLE_DESC_REPLY. */
+
     OFPTYPE_PORT_DESC_STATS_REQUEST, /* OFPRAW_OFPST10_PORT_DESC_REQUEST.
                                       * OFPRAW_OFPST15_PORT_DESC_REQUEST. */
 
@@ -620,6 +639,9 @@ enum ofptype {
     OFPTYPE_SET_PACKET_IN_FORMAT, /* OFPRAW_NXT_SET_PACKET_IN_FORMAT. */
     OFPTYPE_FLOW_AGE,             /* OFPRAW_NXT_FLOW_AGE. */
     OFPTYPE_SET_CONTROLLER_ID,    /* OFPRAW_NXT_SET_CONTROLLER_ID. */
+    OFPTYPE_NXT_GENEVE_TABLE_MOD, /* OFPRAW_NXT_GENEVE_TABLE_MOD. */
+    OFPTYPE_NXT_GENEVE_TABLE_REQUEST, /* OFPRAW_NXT_GENEVE_TABLE_REQUEST. */
+    OFPTYPE_NXT_GENEVE_TABLE_REPLY, /* OFPRAW_NXT_GENEVE_TABLE_REPLY. */
 
     /* Flow monitor extension. */
     OFPTYPE_FLOW_MONITOR_CANCEL,        /* OFPRAW_NXT_FLOW_MONITOR_CANCEL. */
@@ -631,6 +653,9 @@ enum ofptype {
 enum ofperr ofptype_decode(enum ofptype *, const struct ofp_header *);
 enum ofperr ofptype_pull(enum ofptype *, struct ofpbuf *);
 enum ofptype ofptype_from_ofpraw(enum ofpraw);
+
+/* Information about OFTYPE_* values. */
+const char *ofptype_get_name(enum ofptype);
 
 /* OpenFlow message properties. */
 void ofpmsg_update_length(struct ofpbuf *);

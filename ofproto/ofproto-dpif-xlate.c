@@ -97,7 +97,7 @@ struct xbridge {
     bool forward_bpdu;            /* Bridge forwards STP BPDUs? */
 
     /* Datapath feature support. */
-    struct odp_support support;
+    struct dpif_backer_support support;
 };
 
 struct xbundle {
@@ -488,7 +488,7 @@ static void xlate_xbridge_set(struct xbridge *, struct dpif *,
                               const struct dpif_ipfix *,
                               const struct netflow *,
                               bool forward_bpdu, bool has_in_band,
-                              const struct odp_support *);
+                              const struct dpif_backer_support *);
 static void xlate_xbundle_set(struct xbundle *xbundle,
                               enum port_vlan_mode vlan_mode, int vlan,
                               unsigned long *trunks, bool use_priority_tags,
@@ -560,7 +560,7 @@ xlate_xbridge_set(struct xbridge *xbridge,
                   const struct dpif_ipfix *ipfix,
                   const struct netflow *netflow,
                   bool forward_bpdu, bool has_in_band,
-                  const struct odp_support *support)
+                  const struct dpif_backer_support *support)
 {
     if (xbridge->ml != ml) {
         mac_learning_unref(xbridge->ml);
@@ -842,7 +842,7 @@ xlate_ofproto_set(struct ofproto_dpif *ofproto, const char *name,
                   const struct dpif_ipfix *ipfix,
                   const struct netflow *netflow,
                   bool forward_bpdu, bool has_in_band,
-                  const struct odp_support *support)
+                  const struct dpif_backer_support *support)
 {
     struct xbridge *xbridge;
 
@@ -1740,7 +1740,7 @@ output_normal(struct xlate_ctx *ctx, const struct xbundle *out_xbundle,
         struct flow_wildcards *wc = &ctx->xout->wc;
         struct ofport_dpif *ofport;
 
-        if (ctx->xbridge->support.recirc) {
+        if (ctx->xbridge->support.odp.recirc) {
             use_recirc = bond_may_recirc(
                 out_xbundle->bond, &xr.recirc_id, &xr.hash_basis);
 
@@ -2003,28 +2003,28 @@ update_learning_table(const struct xbridge *xbridge,
 /* Updates multicast snooping table 'ms' given that a packet matching 'flow'
  * was received on 'in_xbundle' in 'vlan' and is either Report or Query. */
 static void
-update_mcast_snooping_table__(const struct xbridge *xbridge,
-                              const struct flow *flow,
-                              struct mcast_snooping *ms,
-                              ovs_be32 ip4, int vlan,
-                              struct xbundle *in_xbundle,
-                              const struct dp_packet *packet)
+update_mcast_snooping_table4__(const struct xbridge *xbridge,
+                               const struct flow *flow,
+                               struct mcast_snooping *ms, int vlan,
+                               struct xbundle *in_xbundle,
+                               const struct dp_packet *packet)
     OVS_REQ_WRLOCK(ms->rwlock)
 {
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 30);
     int count;
+    ovs_be32 ip4 = flow->igmp_group_ip4;
 
     switch (ntohs(flow->tp_src)) {
     case IGMP_HOST_MEMBERSHIP_REPORT:
     case IGMPV2_HOST_MEMBERSHIP_REPORT:
-        if (mcast_snooping_add_group(ms, ip4, vlan, in_xbundle->ofbundle)) {
+        if (mcast_snooping_add_group4(ms, ip4, vlan, in_xbundle->ofbundle)) {
             VLOG_DBG_RL(&rl, "bridge %s: multicast snooping learned that "
                         IP_FMT" is on port %s in VLAN %d",
                         xbridge->name, IP_ARGS(ip4), in_xbundle->name, vlan);
         }
         break;
     case IGMP_HOST_LEAVE_MESSAGE:
-        if (mcast_snooping_leave_group(ms, ip4, vlan, in_xbundle->ofbundle)) {
+        if (mcast_snooping_leave_group4(ms, ip4, vlan, in_xbundle->ofbundle)) {
             VLOG_DBG_RL(&rl, "bridge %s: multicast snooping leaving "
                         IP_FMT" is on port %s in VLAN %d",
                         xbridge->name, IP_ARGS(ip4), in_xbundle->name, vlan);
@@ -2042,6 +2042,39 @@ update_mcast_snooping_table__(const struct xbridge *xbridge,
     case IGMPV3_HOST_MEMBERSHIP_REPORT:
         if ((count = mcast_snooping_add_report(ms, packet, vlan,
                                                in_xbundle->ofbundle))) {
+            VLOG_DBG_RL(&rl, "bridge %s: multicast snooping processed %d "
+                        "addresses on port %s in VLAN %d",
+                        xbridge->name, count, in_xbundle->name, vlan);
+        }
+        break;
+    }
+}
+
+static void
+update_mcast_snooping_table6__(const struct xbridge *xbridge,
+                               const struct flow *flow,
+                               struct mcast_snooping *ms, int vlan,
+                               struct xbundle *in_xbundle,
+                               const struct dp_packet *packet)
+    OVS_REQ_WRLOCK(ms->rwlock)
+{
+    static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 30);
+    int count;
+
+    switch (ntohs(flow->tp_src)) {
+    case MLD_QUERY:
+        if (!ipv6_addr_equals(&flow->ipv6_src, &in6addr_any)
+            && mcast_snooping_add_mrouter(ms, vlan, in_xbundle->ofbundle)) {
+            VLOG_DBG_RL(&rl, "bridge %s: multicast snooping query on port %s"
+                        "in VLAN %d",
+                        xbridge->name, in_xbundle->name, vlan);
+        }
+        break;
+    case MLD_REPORT:
+    case MLD_DONE:
+    case MLD2_REPORT:
+        count = mcast_snooping_add_mld(ms, packet, vlan, in_xbundle->ofbundle);
+        if (count) {
             VLOG_DBG_RL(&rl, "bridge %s: multicast snooping processed %d "
                         "addresses on port %s in VLAN %d",
                         xbridge->name, count, in_xbundle->name, vlan);
@@ -2080,8 +2113,13 @@ update_mcast_snooping_table(const struct xbridge *xbridge,
     }
 
     if (!mcast_xbundle || mcast_xbundle != in_xbundle) {
-        update_mcast_snooping_table__(xbridge, flow, ms, flow->igmp_group_ip4,
-                                      vlan, in_xbundle, packet);
+        if (flow->dl_type == htons(ETH_TYPE_IP)) {
+            update_mcast_snooping_table4__(xbridge, flow, ms, vlan,
+                                           in_xbundle, packet);
+        } else {
+            update_mcast_snooping_table6__(xbridge, flow, ms, vlan,
+                                           in_xbundle, packet);
+        }
     }
     ovs_rwlock_unlock(&ms->rwlock);
 }
@@ -2285,11 +2323,11 @@ xlate_normal(struct xlate_ctx *ctx)
     if (mcast_snooping_enabled(ctx->xbridge->ms)
         && !eth_addr_is_broadcast(flow->dl_dst)
         && eth_addr_is_multicast(flow->dl_dst)
-        && flow->dl_type == htons(ETH_TYPE_IP)) {
+        && is_ip_any(flow)) {
         struct mcast_snooping *ms = ctx->xbridge->ms;
-        struct mcast_group *grp;
+        struct mcast_group *grp = NULL;
 
-        if (flow->nw_proto == IPPROTO_IGMP) {
+        if (is_igmp(flow)) {
             if (mcast_snooping_is_membership(flow->tp_src) ||
                 mcast_snooping_is_query(flow->tp_src)) {
                 if (ctx->xin->may_learn) {
@@ -2322,8 +2360,26 @@ xlate_normal(struct xlate_ctx *ctx)
                 xlate_normal_flood(ctx, in_xbundle, vlan);
             }
             return;
+        } else if (is_mld(flow)) {
+            ctx->xout->slow |= SLOW_ACTION;
+            if (ctx->xin->may_learn) {
+                update_mcast_snooping_table(ctx->xbridge, flow, vlan,
+                                            in_xbundle, ctx->xin->packet);
+            }
+            if (is_mld_report(flow)) {
+                ovs_rwlock_rdlock(&ms->rwlock);
+                xlate_normal_mcast_send_mrouters(ctx, ms, in_xbundle, vlan);
+                xlate_normal_mcast_send_rports(ctx, ms, in_xbundle, vlan);
+                ovs_rwlock_unlock(&ms->rwlock);
+            } else {
+                xlate_report(ctx, "MLD query, flooding");
+                xlate_normal_flood(ctx, in_xbundle, vlan);
+            }
         } else {
-            if (ip_is_local_multicast(flow->nw_dst)) {
+            if ((flow->dl_type == htons(ETH_TYPE_IP)
+                 && ip_is_local_multicast(flow->nw_dst))
+                || (flow->dl_type == htons(ETH_TYPE_IPV6)
+                    && ipv6_is_all_hosts(&flow->ipv6_dst))) {
                 /* RFC4541: section 2.1.2, item 2: Packets with a dst IP
                  * address in the 224.0.0.x range which are not IGMP must
                  * be forwarded on all ports */
@@ -2335,7 +2391,11 @@ xlate_normal(struct xlate_ctx *ctx)
 
         /* forwarding to group base ports */
         ovs_rwlock_rdlock(&ms->rwlock);
-        grp = mcast_snooping_lookup(ms, flow->nw_dst, vlan);
+        if (flow->dl_type == htons(ETH_TYPE_IP)) {
+            grp = mcast_snooping_lookup4(ms, flow->nw_dst, vlan);
+        } else if (flow->dl_type == htons(ETH_TYPE_IPV6)) {
+            grp = mcast_snooping_lookup(ms, &flow->ipv6_dst, vlan);
+        }
         if (grp) {
             xlate_normal_mcast_send_group(ctx, ms, grp, in_xbundle, vlan);
             xlate_normal_mcast_send_fports(ctx, ms, in_xbundle, vlan);
@@ -3606,7 +3666,7 @@ compose_mpls_pop_action(struct xlate_ctx *ctx, ovs_be16 eth_type)
     int n = flow_count_mpls_labels(flow, wc);
 
     if (flow_pop_mpls(flow, n, eth_type, wc)) {
-        if (ctx->xbridge->support.recirc) {
+        if (ctx->xbridge->support.odp.recirc) {
             ctx->was_mpls = true;
         }
     } else if (n >= FLOW_MAX_MPLS_LABELS) {
@@ -4840,7 +4900,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         if (is_ip_any(flow)) {
             wc->masks.nw_frag |= FLOW_NW_FRAG_MASK;
         }
-        if (xbridge->support.recirc) {
+        if (xbridge->support.odp.recirc) {
             /* Always exactly match recirc_id when datapath supports
              * recirculation.  */
             wc->masks.recirc_id = UINT32_MAX;

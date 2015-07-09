@@ -73,10 +73,30 @@ BUILD_ASSERT_DECL(N_TABLES >= 2 && N_TABLES <= 255);
  *   Ofproto-dpif-xlate is responsible for translating OpenFlow actions into
  *   datapath actions. */
 
-size_t ofproto_dpif_get_max_mpls_depth(const struct ofproto_dpif *);
-bool ofproto_dpif_get_enable_recirc(const struct ofproto_dpif *);
-bool ofproto_dpif_get_enable_ufid(struct dpif_backer *backer);
-struct odp_support *ofproto_dpif_get_support(const struct ofproto_dpif *);
+
+/* Stores the various features which the corresponding backer supports. */
+struct dpif_backer_support {
+    /* True if the datapath supports variable-length
+     * OVS_USERSPACE_ATTR_USERDATA in OVS_ACTION_ATTR_USERSPACE actions.
+     * False if the datapath supports only 8-byte (or shorter) userdata. */
+    bool variable_length_userdata;
+
+    /* True if the datapath supports masked data in OVS_ACTION_ATTR_SET
+     * actions. */
+    bool masked_set_action;
+
+    /* True if the datapath supports tnl_push and pop actions. */
+    bool tnl_push_pop;
+
+    /* True if the datapath supports OVS_FLOW_ATTR_UFID. */
+    bool ufid;
+
+    /* Each member represents support for related OVS_KEY_ATTR_* fields. */
+    struct odp_support odp;
+};
+
+bool ofproto_dpif_get_enable_ufid(const struct dpif_backer *backer);
+struct dpif_backer_support *ofproto_dpif_get_support(const struct ofproto_dpif *);
 
 cls_version_t ofproto_dpif_get_tables_version(struct ofproto_dpif *);
 
@@ -144,7 +164,8 @@ void ofproto_dpif_send_packet_in(struct ofproto_dpif *,
                                  struct ofproto_packet_in *);
 bool ofproto_dpif_wants_packet_in_on_miss(struct ofproto_dpif *);
 int ofproto_dpif_send_packet(const struct ofport_dpif *, struct dp_packet *);
-void ofproto_dpif_flow_mod(struct ofproto_dpif *, struct ofputil_flow_mod *);
+void ofproto_dpif_flow_mod(struct ofproto_dpif *,
+                           const struct ofputil_flow_mod *);
 struct rule_dpif *ofproto_dpif_refresh_rule(struct rule_dpif *);
 
 struct ofport_dpif *odp_port_to_ofport(const struct dpif_backer *, odp_port_t);

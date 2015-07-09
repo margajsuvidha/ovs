@@ -162,29 +162,16 @@ int odp_flow_from_string(const char *s,
                          const struct simap *port_names,
                          struct ofpbuf *, struct ofpbuf *);
 
-/* Stores the various features which the datapath supports. */
+/* Indicates support for various fields. This defines how flows will be
+ * serialised. */
 struct odp_support {
-    /* True if the datapath supports variable-length
-     * OVS_USERSPACE_ATTR_USERDATA in OVS_ACTION_ATTR_USERSPACE actions.
-     * False if the datapath supports only 8-byte (or shorter) userdata. */
-    bool variable_length_userdata;
-
-    /* Maximum number of MPLS label stack entries that the datapath supports
-     * in a match */
+    /* Maximum number of MPLS label stack entries to serialise in a mask. */
     size_t max_mpls_depth;
 
-    /* True if the datapath supports masked data in OVS_ACTION_ATTR_SET
-     * actions. */
-    bool masked_set_action;
-
-    /* True if the datapath supports recirculation. */
+    /* If this is true, then recirculation fields will always be serialised. */
     bool recirc;
 
-    /* True if the datapath supports tnl_push and pop actions. */
-    bool tnl_push_pop;
-
-    /* True if the datapath supports OVS_FLOW_ATTR_UFID. */
-    bool ufid;
+    /* If true, serialise the corresponding OVS_KEY_ATTR_CONN_* field. */
     bool conn_state;
     bool conn_zone;
     bool conn_mark;
@@ -206,8 +193,14 @@ struct odp_flow_key_parms {
     * port. */
     odp_port_t odp_in_port;
 
-    /* Used to determine flow key serialization. */
+    /* Indicates support for various fields. If the datapath supports a field,
+     * then it will always be serialised. */
     struct odp_support support;
+
+    /* The netlink formatted version of the flow. It is used in cases where
+     * the mask cannot be constructed from the OVS internal representation
+     * and needs to see the original form. */
+    const struct ofpbuf *key_buf;
 };
 
 void odp_flow_key_from_flow(const struct odp_flow_key_parms *, struct ofpbuf *);
@@ -236,7 +229,10 @@ enum odp_key_fitness {
 };
 enum odp_key_fitness odp_flow_key_to_flow(const struct nlattr *, size_t,
                                           struct flow *);
-enum odp_key_fitness odp_flow_key_to_mask(const struct nlattr *key, size_t len,
+enum odp_key_fitness odp_flow_key_to_mask(const struct nlattr *mask_key,
+                                          size_t mask_key_len,
+                                          const struct nlattr *flow_key,
+                                          size_t flow_key_len,
                                           struct flow *mask,
                                           const struct flow *flow);
 const char *odp_key_fitness_to_string(enum odp_key_fitness);

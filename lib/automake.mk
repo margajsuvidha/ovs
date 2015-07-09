@@ -237,6 +237,11 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/string.c \
 	lib/svec.c \
 	lib/svec.h \
+	lib/syslog-direct.c \
+	lib/syslog-direct.h \
+	lib/syslog-libc.c \
+	lib/syslog-libc.h \
+	lib/syslog-provider.h \
 	lib/table.c \
 	lib/table.h \
 	lib/tag.c \
@@ -250,6 +255,8 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/tnl-ports.c \
 	lib/tnl-ports.h \
 	lib/token-bucket.c \
+	lib/tun-metadata.c \
+	lib/tun-metadata.h \
 	lib/type-props.h \
 	lib/unaligned.h \
 	lib/unicode.c \

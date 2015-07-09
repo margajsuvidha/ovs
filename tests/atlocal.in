@@ -112,7 +112,7 @@ else
 fi
 
 if test "$HAVE_PYTHON" = "yes" \
-   && test x`$PYTHON $abs_top_srcdir/tests/test-conntrack.py --help | grep 'ftp'` = x; then
+   && test "x`$PYTHON $abs_top_srcdir/tests/test-conntrack.py --help | grep 'ftp'`" != x; then
     HAVE_PYFTPDLIB="yes"
 else
     HAVE_PYFTPDLIB="no"

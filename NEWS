@@ -6,6 +6,12 @@ Post-v2.4.0
    - OpenFlow:
      * Group chaining (where one OpenFlow group triggers another) is
        now supported.
+     * OpenFlow 1.4+ "importance" is now considered for flow eviction.
+     * OpenFlow 1.4+ OFPTC_EVICTION is now implemented.
+     * OpenFlow 1.4+ OFPMP_TABLE_DESC is now implemented.
+   - Support for matching and generating options with Geneve tunnels.
+   - Support Multicast Listener Discovery (MLDv1 and MLDv2).
+   - Add 'symmetric_l3l4' and 'symmetric_l3l4+udp' hash functions.
 
 
 v2.4.0 - xx xxx xxxx
@@ -122,6 +128,10 @@ v2.4.0 - xx xxx xxxx
    - Support for STT tunneling.
    - ovs-sim: New developer tool for simulating multiple OVS instances.
      See ovs-sim(1) for more information.
+   - Support to configure method (--syslog-method argument) that determines
+     how daemons will talk with syslog.
+   - Support for "ovs-appctl vlog/list-pattern" command that lets to query
+     logging message format for each destination.
 
 
 v2.3.0 - 14 Aug 2014
