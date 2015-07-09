@@ -692,13 +692,13 @@ enum OVS_PACKED_ENUM mf_field_id {
      */
     MFF_PKT_MARK,
 
-    /* "conn_state".
+    /* "ct_state".
      *
      * Connection tracking state.  The field is populated by the
      * NXAST_CT action.  The following flags are defined:
      *
-     *   - CONN_STATE_TRACKED (0x80): Connection tracking has occurred.
-     *   - CONN_STATE_REPLY (0x40): This flow did not initiate the connection.
+     *   - CT_STATE_TRACKED (0x80): Connection tracking has occurred.
+     *   - CT_STATE_REPLY (0x40): This flow did not initiate the connection.
      *
      * The following values describe the state of the connection:
      *
@@ -712,12 +712,12 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: conn state.
      * Prerequisites: none.
      * Access: read-only.
-     * NXM: NXM_NX_CONN_STATE(104) since v2.5.
+     * NXM: NXM_NX_CT_STATE(104) since v2.5.
      * OXM: none.
      */
-    MFF_CONN_STATE,
+    MFF_CT_STATE,
 
-    /* "conn_zone".
+    /* "ct_zone".
      *
      * Connection tracking zone.  The field is populated by the
      * NXAST_CT action.
@@ -727,12 +727,12 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: hexadecimal.
      * Prerequisites: none.
      * Access: read-only.
-     * NXM: NXM_NX_CONN_ZONE(105) since v2.5.
+     * NXM: NXM_NX_CT_ZONE(105) since v2.5.
      * OXM: none.
      */
-    MFF_CONN_ZONE,
+    MFF_CT_ZONE,
 
-    /* "conn_mark".
+    /* "ct_mark".
      *
      * Connection tracking mark.  The mark is carried with the
      * connection tracking state.  On Linux this corresponds to the
@@ -744,12 +744,12 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: hexadecimal.
      * Prerequisites: none.
      * Access: read/write.
-     * NXM: NXM_NX_CONN_MARK(106) since v2.5.
+     * NXM: NXM_NX_CT_MARK(106) since v2.5.
      * OXM: none.
      */
-    MFF_CONN_MARK,
+    MFF_CT_MARK,
 
-    /* "conn_label".
+    /* "ct_label".
      *
      * Connection tracking label.  The label is carried with the
      * connection tracking state.  On Linux this is held in the
@@ -761,10 +761,10 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Formatting: conn label.
      * Prerequisites: none.
      * Access: read/write.
-     * NXM: NXM_NX_CONN_LABEL(107) since v2.5.
+     * NXM: NXM_NX_CT_LABEL(107) since v2.5.
      * OXM: none.
      */
-    MFF_CONN_LABEL,
+    MFF_CT_LABEL,
 
 #if FLOW_N_REGS == 8
     /* "reg<N>".
@@ -1742,8 +1742,8 @@ enum OVS_PACKED_ENUM mf_string {
     MFS_HEXADECIMAL,
 
     /* Other formats. */
-    MFS_CONN_STATE,             /* Conn* state */
-    MFS_CONN_LABEL,             /* Conn* label */
+    MFS_CT_STATE,               /* Connection tracking state */
+    MFS_CT_LABEL,               /* Connection tracking label */
     MFS_ETHERNET,
     MFS_IPV4,
     MFS_IPV6,

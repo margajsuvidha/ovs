@@ -480,15 +480,15 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
         miniflow_pad_to_64(mf, conj_id);
     }
 
-    if (md->conn_mark || md->conn_zone || md->conn_state) {
-        miniflow_push_uint32(mf, conn_mark, md->conn_mark);
-        miniflow_push_uint16(mf, conn_zone, md->conn_zone);
-        miniflow_push_uint8(mf, conn_state, md->conn_state);
+    if (md->ct_mark || md->ct_zone || md->ct_state) {
+        miniflow_push_uint32(mf, ct_mark, md->ct_mark);
+        miniflow_push_uint16(mf, ct_zone, md->ct_zone);
+        miniflow_push_uint8(mf, ct_state, md->ct_state);
         miniflow_pad_to_64(mf, pad1);
     }
-    if (!is_all_zeros(&md->conn_label, sizeof md->conn_label)) {
-        miniflow_push_words(mf, conn_label, &md->conn_label,
-                            sizeof md->conn_label / 8);
+    if (!is_all_zeros(&md->ct_label, sizeof md->ct_label)) {
+        miniflow_push_words(mf, ct_label, &md->ct_label,
+                            sizeof md->ct_label / 8);
     }
 
     /* Initialize packet's layer pointer and offsets. */
@@ -840,17 +840,17 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
     }
 
     match_set_in_port(flow_metadata, flow->in_port.ofp_port);
-    if (flow->conn_state != 0) {
-        match_set_conn_state(flow_metadata, flow->conn_state);
+    if (flow->ct_state != 0) {
+        match_set_ct_state(flow_metadata, flow->ct_state);
     }
-    if (flow->conn_zone != 0) {
-        match_set_conn_zone(flow_metadata, flow->conn_zone);
+    if (flow->ct_zone != 0) {
+        match_set_ct_zone(flow_metadata, flow->ct_zone);
     }
-    if (flow->conn_mark != 0) {
-        match_set_conn_mark(flow_metadata, flow->conn_mark);
+    if (flow->ct_mark != 0) {
+        match_set_ct_mark(flow_metadata, flow->ct_mark);
     }
-    if (!is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
-        match_set_conn_label(flow_metadata, flow->conn_label);
+    if (!is_all_zeros(&flow->ct_label, sizeof(flow->ct_label))) {
+        match_set_ct_label(flow_metadata, flow->ct_label);
     }
 }
 
@@ -956,17 +956,17 @@ flow_format(struct ds *ds, const struct flow *flow)
     if (!flow->dp_hash) {
         WC_UNMASK_FIELD(wc, dp_hash);
     }
-    if (!flow->conn_state) {
-        WC_UNMASK_FIELD(wc, conn_state);
+    if (!flow->ct_state) {
+        WC_UNMASK_FIELD(wc, ct_state);
     }
-    if (!flow->conn_zone) {
-        WC_UNMASK_FIELD(wc, conn_zone);
+    if (!flow->ct_zone) {
+        WC_UNMASK_FIELD(wc, ct_zone);
     }
-    if (!flow->conn_mark) {
-        WC_UNMASK_FIELD(wc, conn_mark);
+    if (!flow->ct_mark) {
+        WC_UNMASK_FIELD(wc, ct_mark);
     }
-    if (is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
-        WC_UNMASK_FIELD(wc, conn_label);
+    if (is_all_zeros(&flow->ct_label, sizeof(flow->ct_label))) {
+        WC_UNMASK_FIELD(wc, ct_label);
     }
     for (int i = 0; i < FLOW_N_REGS; i++) {
         if (!flow->regs[i]) {
@@ -1035,10 +1035,10 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
 
     WC_MASK_FIELD(wc, skb_priority);
     WC_MASK_FIELD(wc, pkt_mark);
-    WC_MASK_FIELD(wc, conn_state);
-    WC_MASK_FIELD(wc, conn_zone);
-    WC_MASK_FIELD(wc, conn_mark);
-    WC_MASK_FIELD(wc, conn_label);
+    WC_MASK_FIELD(wc, ct_state);
+    WC_MASK_FIELD(wc, ct_zone);
+    WC_MASK_FIELD(wc, ct_mark);
+    WC_MASK_FIELD(wc, ct_label);
     WC_MASK_FIELD(wc, recirc_id);
     WC_MASK_FIELD(wc, dp_hash);
     WC_MASK_FIELD(wc, in_port);
@@ -1122,9 +1122,9 @@ flow_wc_map(const struct flow *flow)
     /* Metadata fields that can appear on packet input. */
     map |= MINIFLOW_MAP(skb_priority) | MINIFLOW_MAP(pkt_mark)
         | MINIFLOW_MAP(recirc_id) | MINIFLOW_MAP(dp_hash)
-        | MINIFLOW_MAP(in_port) | MINIFLOW_MAP(conn_mark)
-        | MINIFLOW_MAP(conn_zone) | MINIFLOW_MAP(conn_state)
-        | MINIFLOW_MAP(conn_label)
+        | MINIFLOW_MAP(in_port) | MINIFLOW_MAP(ct_mark)
+        | MINIFLOW_MAP(ct_zone) | MINIFLOW_MAP(ct_state)
+        | MINIFLOW_MAP(ct_label)
         | MINIFLOW_MAP(dl_dst) | MINIFLOW_MAP(dl_src)
         | MINIFLOW_MAP(dl_type) | MINIFLOW_MAP(vlan_tci);
 

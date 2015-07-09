@@ -1258,10 +1258,10 @@ check_##NAME(struct dpif_backer *backer)                                    \
 }
 #define CHECK_FEATURE(FIELD) CHECK_FEATURE__(FIELD, FIELD)
 
-CHECK_FEATURE(conn_state)
-CHECK_FEATURE(conn_zone)
-CHECK_FEATURE(conn_mark)
-CHECK_FEATURE__(conn_label, conn_label.u64.lo)
+CHECK_FEATURE(ct_state)
+CHECK_FEATURE(ct_zone)
+CHECK_FEATURE(ct_mark)
+CHECK_FEATURE__(ct_label, ct_label.u64.lo)
 
 #undef CHECK_FEATURE
 #undef CHECK_FEATURE__
@@ -1278,10 +1278,10 @@ check_support(struct dpif_backer *backer)
 
     backer->support.odp.recirc = check_recirc(backer);
     backer->support.odp.max_mpls_depth = check_max_mpls_depth(backer);
-    backer->support.odp.conn_state = check_conn_state(backer);
-    backer->support.odp.conn_zone = check_conn_zone(backer);
-    backer->support.odp.conn_mark = check_conn_mark(backer);
-    backer->support.odp.conn_label = check_conn_label(backer);
+    backer->support.odp.ct_state = check_ct_state(backer);
+    backer->support.odp.ct_zone = check_ct_zone(backer);
+    backer->support.odp.ct_mark = check_ct_mark(backer);
+    backer->support.odp.ct_label = check_ct_label(backer);
 }
 
 static int
@@ -4004,15 +4004,15 @@ rule_check(struct rule *rule)
     minimatch_expand(&rule->cr.match, &match);
     support = &ofproto_dpif_get_support(ofproto)->odp;
 
-    if ((match.wc.masks.conn_state && !support->conn_state)
-        || (match.wc.masks.conn_zone && !support->conn_zone)
-        || (match.wc.masks.conn_mark && !support->conn_mark)
-        || (!support->conn_label
-            && !is_all_zeros(&match.wc.masks.conn_label,
-                             sizeof(match.wc.masks.conn_label)))) {
+    if ((match.wc.masks.ct_state && !support->ct_state)
+        || (match.wc.masks.ct_zone && !support->ct_zone)
+        || (match.wc.masks.ct_mark && !support->ct_mark)
+        || (!support->ct_label
+            && !is_all_zeros(&match.wc.masks.ct_label,
+                             sizeof(match.wc.masks.ct_label)))) {
         return OFPERR_OFPBMC_BAD_FIELD;
     }
-    if (match.wc.masks.conn_state & CS_UNSUPPORTED_MASK) {
+    if (match.wc.masks.ct_state & CS_UNSUPPORTED_MASK) {
         return OFPERR_OFPBMC_BAD_MASK;
     }
 

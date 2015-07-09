@@ -5732,7 +5732,7 @@ ofpact_check__(enum ofputil_protocol *usable_protocols, struct ofpact *a,
         struct ofpact_conntrack *oc = ofpact_get_CT(a);
 
         if (!dl_type_is_ip_any(flow->dl_type)
-            || (flow->conn_state & CS_INVALID && oc->flags & NX_CT_F_COMMIT)) {
+            || (flow->ct_state & CS_INVALID && oc->flags & NX_CT_F_COMMIT)) {
             inconsistent_match(usable_protocols);
         }
         return 0;

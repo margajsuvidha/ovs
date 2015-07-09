@@ -30,8 +30,8 @@ AT_DATA([flows.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 in_port=1,udp,action=ct(commit,zone=0),controller
-in_port=2,conn_state=-trk,udp,action=ct(recirc,zone=0)
-in_port=2,conn_state=+trk+est-new,udp,action=controller
+in_port=2,ct_state=-trk,udp,action=ct(recirc,zone=0)
+in_port=2,ct_state=+trk+est-new,udp,action=controller
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -52,7 +52,7 @@ dnl Check this output. We only see the latter two packets, not the first.
 AT_CHECK([cat ofctl_monitor.log], [0], [dnl
 NXT_PACKET_IN (xid=0x0): total_len=42 in_port=1 (via action) data_len=42 (unbuffered)
 udp,vlan_tci=0x0000,dl_src=50:54:00:00:00:09,dl_dst=50:54:00:00:00:0a,nw_src=10.1.1.1,nw_dst=10.1.1.2,nw_tos=0,nw_ecn=0,nw_ttl=0,tp_src=1,tp_dst=2 udp_csum:0
-NXT_PACKET_IN (xid=0x0): cookie=0x0 total_len=42 conn_state=est|rpl|trk,in_port=2 (via action) data_len=42 (unbuffered)
+NXT_PACKET_IN (xid=0x0): cookie=0x0 total_len=42 ct_state=est|rpl|trk,in_port=2 (via action) data_len=42 (unbuffered)
 udp,vlan_tci=0x0000,dl_src=50:54:00:00:00:09,dl_dst=50:54:00:00:00:0a,nw_src=10.1.1.2,nw_dst=10.1.1.1,nw_tos=0,nw_ecn=0,nw_ttl=0,tp_src=2,tp_dst=1 udp_csum:0
 ])
 
@@ -75,8 +75,8 @@ priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
 in_port=1,tcp,action=ct(commit,zone=0),2
-in_port=2,conn_state=-trk,tcp,action=ct(recirc,zone=0)
-in_port=2,conn_state=+trk+est-new,tcp,action=1
+in_port=2,ct_state=-trk,tcp,action=ct(recirc,zone=0)
+in_port=2,ct_state=+trk+est-new,tcp,action=1
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -115,8 +115,8 @@ AT_DATA([flows.txt], [dnl
 priority=1,action=drop
 priority=10,icmp6,action=normal
 in_port=1,tcp6,action=ct(commit,zone=0),2
-in_port=2,conn_state=-trk,tcp6,action=ct(recirc,zone=0)
-in_port=2,conn_state=+trk+est-new,tcp6,action=1
+in_port=2,ct_state=-trk,tcp6,action=ct(recirc,zone=0)
+in_port=2,ct_state=+trk+est-new,tcp6,action=1
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -158,15 +158,15 @@ AT_DATA([flows.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=1,tcp,conn_state=-trk,action=ct(commit,recirc)
-in_port=1,tcp,conn_state=+trk,action=2
-in_port=2,tcp,conn_state=-trk,action=ct(recirc)
-in_port=2,tcp,conn_state=+trk,action=1
-in_port=3,tcp,conn_state=-trk,action=set_field:0->metadata,ct(recirc)
-in_port=3,tcp,conn_state=+trk,metadata=0,action=set_field:1->metadata,ct(commit,recirc)
-in_port=3,tcp,conn_state=+trk,metadata=1,action=4
-in_port=4,tcp,conn_state=-trk,action=ct(commit,recirc)
-in_port=4,tcp,conn_state=+trk,action=3
+in_port=1,tcp,ct_state=-trk,action=ct(commit,recirc)
+in_port=1,tcp,ct_state=+trk,action=2
+in_port=2,tcp,ct_state=-trk,action=ct(recirc)
+in_port=2,tcp,ct_state=+trk,action=1
+in_port=3,tcp,ct_state=-trk,action=set_field:0->metadata,ct(recirc)
+in_port=3,tcp,ct_state=+trk,metadata=0,action=set_field:1->metadata,ct(commit,recirc)
+in_port=3,tcp,ct_state=+trk,metadata=1,action=4
+in_port=4,tcp,ct_state=-trk,action=ct(commit,recirc)
+in_port=4,tcp,ct_state=+trk,action=3
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -200,12 +200,12 @@ priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
 in_port=1,tcp,action=ct(zone=0),2
-in_port=2,conn_state=-trk,tcp,action=ct(recirc,zone=0)
-in_port=2,conn_state=+trk+new,tcp,action=1
+in_port=2,ct_state=-trk,tcp,action=ct(recirc,zone=0)
+in_port=2,ct_state=+trk+new,tcp,action=1
 in_port=3,tcp,action=ct(zone=0),4
-in_port=4,conn_state=-trk,tcp,action=ct(recirc,zone=0)
-in_port=4,conn_state=+trk+inv,tcp,action=3
-in_port=4,conn_state=+trk+new,tcp,action=3
+in_port=4,ct_state=-trk,tcp,action=ct(recirc,zone=0)
+in_port=4,ct_state=+trk+inv,tcp,action=3
+in_port=4,ct_state=+trk+new,tcp,action=3
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -241,11 +241,11 @@ priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
 in_port=1,tcp,action=ct(commit,zone=1),2
-in_port=2,conn_state=-trk,tcp,action=ct(recirc,zone=1)
-in_port=2,conn_state=+trk,conn_zone=1,tcp,action=1
+in_port=2,ct_state=-trk,tcp,action=ct(recirc,zone=1)
+in_port=2,ct_state=+trk,ct_zone=1,tcp,action=1
 in_port=3,tcp,action=ct(commit,zone=2),4
-in_port=4,conn_state=-trk,tcp,action=ct(recirc,zone=2)
-in_port=4,conn_state=+trk,conn_zone=1,tcp,action=3
+in_port=4,ct_state=-trk,tcp,action=ct(recirc,zone=2)
+in_port=4,ct_state=+trk,ct_zone=1,tcp,action=3
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -288,9 +288,9 @@ AT_DATA([flows-br0.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=2,tcp,conn_state=-trk,action=ct(commit,zone=1),1
-in_port=1,tcp,conn_state=-trk,action=ct(recirc,zone=1)
-in_port=1,tcp,conn_state=+trk+est,conn_zone=1,action=2
+in_port=2,tcp,ct_state=-trk,action=ct(commit,zone=1),1
+in_port=1,tcp,ct_state=-trk,action=ct(recirc,zone=1)
+in_port=1,tcp,ct_state=+trk+est,ct_zone=1,action=2
 ])
 
 dnl Allow any traffic from ns0->ns1, allow established in reverse.
@@ -298,11 +298,11 @@ AT_DATA([flows-br1.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=1,tcp,conn_state=-trk,action=ct(recirc,zone=2)
-in_port=1,tcp,conn_state=+trk+new,conn_zone=2,action=ct(commit,zone=2),2
-in_port=1,tcp,conn_state=+trk+est,conn_zone=2,action=2
-in_port=2,tcp,conn_state=-trk,action=ct(recirc,zone=2)
-in_port=2,tcp,conn_state=+trk+est,conn_zone=2,action=ct(commit,zone=2),1
+in_port=1,tcp,ct_state=-trk,action=ct(recirc,zone=2)
+in_port=1,tcp,ct_state=+trk+new,ct_zone=2,action=ct(commit,zone=2),2
+in_port=1,tcp,ct_state=+trk+est,ct_zone=2,action=2
+in_port=2,tcp,ct_state=-trk,action=ct(recirc,zone=2)
+in_port=2,tcp,ct_state=+trk+est,ct_zone=2,action=ct(commit,zone=2),1
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows-br0.txt])
@@ -333,8 +333,8 @@ priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
 in_port=1,tcp,action=ct(commit,zone=1),ct(commit,zone=2),2
-in_port=2,conn_state=-trk,tcp,action=ct(recirc,zone=2)
-in_port=2,conn_state=+trk,conn_zone=2,tcp,action=1
+in_port=2,ct_state=-trk,tcp,action=ct(recirc,zone=2)
+in_port=2,ct_state=+trk,ct_zone=2,tcp,action=1
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -355,7 +355,7 @@ TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2
 OVS_KMOD_VSWITCHD_STOP
 AT_CLEANUP
 
-AT_SETUP([conntrack - conn_mark])
+AT_SETUP([conntrack - ct_mark])
 CONNTRACK()
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
@@ -372,12 +372,12 @@ AT_DATA([flows.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=1,tcp,action=ct(commit),set_field:1->conn_mark,2
-in_port=2,conn_state=-trk,tcp,action=ct(recirc)
-in_port=2,conn_state=+trk,conn_mark=1,tcp,action=1
-in_port=3,tcp,action=ct(commit),set_field:2->conn_mark,4
-in_port=4,conn_state=-trk,tcp,action=ct(recirc)
-in_port=4,conn_state=+trk,conn_mark=1,tcp,action=3
+in_port=1,tcp,action=ct(commit),set_field:1->ct_mark,2
+in_port=2,ct_state=-trk,tcp,action=ct(recirc)
+in_port=2,ct_state=+trk,ct_mark=1,tcp,action=1
+in_port=3,tcp,action=ct(commit),set_field:2->ct_mark,4
+in_port=4,ct_state=-trk,tcp,action=ct(recirc)
+in_port=4,ct_state=+trk,ct_mark=1,tcp,action=3
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -417,14 +417,14 @@ AT_DATA([flows.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=1,tcp,action=ct(commit),2,set_field:1->conn_mark
-in_port=2,conn_state=-trk,tcp,action=ct(recirc)
-in_port=2,conn_state=+trk,conn_mark=1,tcp,action=1
+in_port=1,tcp,action=ct(commit),2,set_field:1->ct_mark
+in_port=2,ct_state=-trk,tcp,action=ct(recirc)
+in_port=2,ct_state=+trk,ct_mark=1,tcp,action=1
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
-dnl HTTP requests from p0->p1 should work fine, even if we output before changing the conn_mark.
+dnl HTTP requests from p0->p1 should work fine, even if we output before changing the ct_mark.
 NETNS_DAEMONIZE([at_ns1], [[$PYTHON $srcdir/test-conntrack.py]], [test-conntrack0.pid])
 AT_CHECK([ip netns exec at_ns0 wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
@@ -435,7 +435,7 @@ TIME_WAIT src=10.1.1.1 dst=10.1.1.2 sport=<cleared> dport=<cleared> src=10.1.1.2
 OVS_KMOD_VSWITCHD_STOP
 AT_CLEANUP
 
-AT_SETUP([conntrack - conn_label])
+AT_SETUP([conntrack - ct_label])
 CONNTRACK()
 OVS_KMOD_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
@@ -452,12 +452,12 @@ AT_DATA([flows.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=1,tcp,action=ct(commit),set_field:000000000000000001->conn_label,2
-in_port=2,conn_state=-trk,tcp,action=ct(recirc)
-in_port=2,conn_state=+trk,conn_label=000000000000000001,tcp,action=1
-in_port=3,tcp,action=ct(commit),set_field:000000000000000002->conn_label,4
-in_port=4,conn_state=-trk,tcp,action=ct(recirc)
-in_port=4,conn_state=+trk,conn_label=000000000000000001,tcp,action=3
+in_port=1,tcp,action=ct(commit),set_field:000000000000000001->ct_label,2
+in_port=2,ct_state=-trk,tcp,action=ct(recirc)
+in_port=2,ct_state=+trk,ct_label=000000000000000001,tcp,action=1
+in_port=3,tcp,action=ct(commit),set_field:000000000000000002->ct_label,4
+in_port=4,ct_state=-trk,tcp,action=ct(recirc)
+in_port=4,ct_state=+trk,ct_label=000000000000000001,tcp,action=3
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -487,9 +487,9 @@ ADD_VETH(p1, at_ns1, br0, "10.1.1.2/24")
 dnl Allow UDP traffic from ns0->ns1. Only allow related ICMP responses back.
 AT_DATA([flows.txt], [dnl
 priority=10,arp,action=normal
-in_port=1,udp,action=ct(commit,zone=0),set_field:1->conn_mark,2
-in_port=2,icmp,conn_state=-trk,action=ct(recirc,zone=0)
-in_port=2,icmp,conn_state=+trk+rel,conn_mark=1,action=1
+in_port=1,udp,action=ct(commit,zone=0),set_field:1->ct_mark,2
+in_port=2,icmp,ct_state=-trk,action=ct(recirc,zone=0)
+in_port=2,icmp,ct_state=+trk+rel,ct_mark=1,action=1
 ])
 
 dnl ovs-appctl vlog/set dpif:dbg
@@ -502,8 +502,8 @@ AT_CHECK([ip netns exec at_ns0 bash -c "echo a | nc -u 10.1.1.2 10000"])
 AT_CHECK([ovs-appctl revalidator/purge], [0])
 AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop], [0], [dnl
  n_packets=1, n_bytes=44, udp,in_port=1 actions=ct(commit,zone=0),load:0x1->NXM_NX_CONN_MARK[[]],output:2
- n_packets=1, n_bytes=72, conn_state=+rel+trk,conn_mark=0x1,icmp,in_port=2 actions=output:1
- n_packets=1, n_bytes=72, conn_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
+ n_packets=1, n_bytes=72, ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
+ n_packets=1, n_bytes=72, ct_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
  n_packets=2, n_bytes=84, priority=10,arp actions=NORMAL
 NXST_FLOW reply:
 ])
@@ -528,9 +528,9 @@ priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
 in_port=1,tcp,action=ct(alg=ftp,commit),2
-in_port=2,tcp,conn_state=-trk,action=ct(recirc)
-in_port=2,tcp,conn_state=+trk-new+est,action=1
-in_port=2,tcp,conn_state=+trk+rel,action=1
+in_port=2,tcp,ct_state=-trk,action=ct(recirc)
+in_port=2,tcp,ct_state=+trk-new+est,action=1
+in_port=2,tcp,ct_state=+trk+rel,action=1
 ])
 
 dnl Similar policy but without allowing all traffic from ns0->ns1.
@@ -538,13 +538,13 @@ AT_DATA([flows2.txt], [dnl
 priority=1,action=drop
 priority=10,arp,action=normal
 priority=10,icmp,action=normal
-in_port=1,tcp,conn_state=-trk,action=ct(recirc)
-in_port=1,tcp,conn_state=+trk+new,action=ct(commit,alg=ftp),2
-in_port=1,tcp,conn_state=+trk+est,action=2
-in_port=2,tcp,conn_state=-trk,action=ct(recirc)
-in_port=2,tcp,conn_state=+trk+new+rel,action=ct(commit),1
-in_port=2,tcp,conn_state=+trk-new+est,action=1
-in_port=2,tcp,conn_state=+trk-new+rel,action=1
+in_port=1,tcp,ct_state=-trk,action=ct(recirc)
+in_port=1,tcp,ct_state=+trk+new,action=ct(commit,alg=ftp),2
+in_port=1,tcp,ct_state=+trk+est,action=2
+in_port=2,tcp,ct_state=-trk,action=ct(recirc)
+in_port=2,tcp,ct_state=+trk+new+rel,action=ct(commit),1
+in_port=2,tcp,ct_state=+trk-new+est,action=1
+in_port=2,tcp,ct_state=+trk-new+rel,action=1
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows1.txt])

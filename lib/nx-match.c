@@ -776,9 +776,9 @@ nxm_put_frag(struct ofpbuf *b, const struct match *match,
 }
 
 static void
-nxm_put_conn_label(struct ofpbuf *b,
-                   enum mf_field_id field, enum ofp_version version,
-                   const ovs_u128 value, const ovs_u128 mask)
+nxm_put_ct_label(struct ofpbuf *b,
+                 enum mf_field_id field, enum ofp_version version,
+                 const ovs_u128 value, const ovs_u128 mask)
 {
     nxm_put(b, field, version, &value, &mask, sizeof(value));
 }
@@ -1037,22 +1037,22 @@ nx_put_raw(struct ofpbuf *b, enum ofp_version oxm, const struct match *match,
                 htonl(match->wc.masks.pkt_mark));
 
     /* Connection tracking. */
-    if (match->wc.masks.conn_state) {
-        nxm_put_8m(b, MFF_CONN_STATE, oxm, flow->conn_state,
-                   match->wc.masks.conn_state);
+    if (match->wc.masks.ct_state) {
+        nxm_put_8m(b, MFF_CT_STATE, oxm, flow->ct_state,
+                   match->wc.masks.ct_state);
     }
-    if (match->wc.masks.conn_zone) {
-        nxm_put_16m(b, MFF_CONN_ZONE, oxm, htons(flow->conn_zone),
-                    htons(match->wc.masks.conn_zone));
+    if (match->wc.masks.ct_zone) {
+        nxm_put_16m(b, MFF_CT_ZONE, oxm, htons(flow->ct_zone),
+                    htons(match->wc.masks.ct_zone));
     }
-    if (match->wc.masks.conn_mark) {
-        nxm_put_32m(b, MFF_CONN_MARK, oxm, htonl(flow->conn_mark),
-                    htonl(match->wc.masks.conn_mark));
+    if (match->wc.masks.ct_mark) {
+        nxm_put_32m(b, MFF_CT_MARK, oxm, htonl(flow->ct_mark),
+                    htonl(match->wc.masks.ct_mark));
     }
-    if (!is_all_zeros(&match->wc.masks.conn_label,
-                      sizeof(match->wc.masks.conn_label))) {
-        nxm_put_conn_label(b, MFF_CONN_LABEL, oxm, flow->conn_label,
-                           match->wc.masks.conn_label);
+    if (!is_all_zeros(&match->wc.masks.ct_label,
+                      sizeof(match->wc.masks.ct_label))) {
+        nxm_put_ct_label(b, MFF_CT_LABEL, oxm, flow->ct_label,
+                         match->wc.masks.ct_label);
     }
 
     /* OpenFlow 1.1+ Metadata. */

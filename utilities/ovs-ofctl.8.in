@@ -1258,8 +1258,8 @@ is used only with the \fBconjunction\fR action (see below).
 .IP
 This field was introduced in Open vSwitch 2.4.
 .
-.IP \fBconn_state=\fIflags\fB/\fImask\fR
-.IQ \fBconn_state=\fR[\fB+\fIflag\fR...][\fB-\fIflag\fR...]
+.IP \fBct_state=\fIflags\fB/\fImask\fR
+.IQ \fBct_state=\fR[\fB+\fIflag\fR...][\fB-\fIflag\fR...]
 Bitwise match on connection state flags.  The flags are only available
 after a call to the \fBct\fR action with the "recirc" flag set.
 .IP
@@ -1272,7 +1272,7 @@ Alternatively, the flags can be specified by their symbolic names
 (listed below), each preceded by either \fB+\fR for a flag that must
 be set, or \fB\-\fR for a flag that must be unset, without any other
 delimiters between the flags.  Flags not mentioned are wildcarded.  For
-example, \fBtcp,conn_state=+trk\-new\fR matches TCP packets that
+example, \fBtcp,ct_state=+trk\-new\fR matches TCP packets that
 have been run through the connection tracker and do not establish a new
 flow.
 .IP
@@ -1299,14 +1299,14 @@ The following fields are data associated with the connection tracker and
 can only be matched or set after running through the connection tracker
 by using the \fBct\fR action.
 .
-.IP \fBconn_zone=\fIvalue
+.IP \fBct_zone=\fIvalue
 Matches connection zone \fIvalue\fR exactly.
 .
-.IP \fBconn_mark=\fIvalue\fR[\fB/\fImask\fR]
+.IP \fBct_mark=\fIvalue\fR[\fB/\fImask\fR]
 Matches connection mark \fIvalue\fR either exactly or with optional
 \fImask\fR.
 .
-.IP \fBconn_label=\fIvalue\fR[\fB/\fImask\fR]
+.IP \fBct_label=\fIvalue\fR[\fB/\fImask\fR]
 Matches connection label \fIvalue\fR either exactly or with optional
 \fImask\fR.
 .
@@ -1555,7 +1555,7 @@ are supported:
 .RS
 .IP \fBrecirc\fR
 The packet should be sent back for further processing with the
-\fBconn_state\fR match fields set.
+\fBct_state\fR match fields set.
 .IP \fBcommit\fR
 Commit the flow to the connection tracking module.
 .IP \fBzone\fR
