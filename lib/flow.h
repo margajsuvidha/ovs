@@ -107,11 +107,11 @@ struct flow {
     union flow_in_port in_port; /* Input port.*/
     uint32_t recirc_id;         /* Must be exact match. */
     uint32_t conj_id;           /* Conjunction ID. */
-    uint32_t conn_mark;         /* Connection mark. With L3 to avoid L4 match.*/
-    uint16_t conn_zone;         /* Connection Zone. */
-    uint8_t conn_state;         /* Connection state. */
+    uint32_t ct_mark;         /* Connection mark. With L3 to avoid L4 match.*/
+    uint16_t ct_zone;         /* Connection Zone. */
+    uint8_t ct_state;         /* Connection state. */
     uint8_t pad1[1];            /* Pad to 64 bits. */
-    ovs_u128 conn_label;        /* Connection label. */
+    ovs_u128 ct_label;        /* Connection label. */
     ofp_port_t actset_output;   /* Output port in action set. */
     uint8_t pad2[6];            /* Pad to 64 bits. */
 
@@ -746,10 +746,10 @@ pkt_metadata_from_flow(struct pkt_metadata *md, const struct flow *flow)
     md->skb_priority = flow->skb_priority;
     md->pkt_mark = flow->pkt_mark;
     md->in_port = flow->in_port;
-    md->conn_state = flow->conn_state;
-    md->conn_zone = flow->conn_zone;
-    md->conn_mark = flow->conn_mark;
-    md->conn_label = flow->conn_label;
+    md->ct_state = flow->ct_state;
+    md->ct_zone = flow->ct_zone;
+    md->ct_mark = flow->ct_mark;
+    md->ct_label = flow->ct_label;
 }
 
 static inline bool is_ip_any(const struct flow *flow)

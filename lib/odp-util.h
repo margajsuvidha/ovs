@@ -172,10 +172,10 @@ struct odp_support {
     bool recirc;
 
     /* If true, serialise the corresponding OVS_KEY_ATTR_CONN_* field. */
-    bool conn_state;
-    bool conn_zone;
-    bool conn_mark;
-    bool conn_label;
+    bool ct_state;
+    bool ct_zone;
+    bool ct_mark;
+    bool ct_label;
 };
 
 struct odp_flow_key_parms {

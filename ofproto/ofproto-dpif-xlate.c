@@ -2820,10 +2820,10 @@ build_tunnel_send(struct xlate_ctx *ctx, const struct xport *xport,
 static void
 clear_conntrack(struct flow *flow)
 {
-    flow->conn_state = 0;
-    flow->conn_zone = 0;
-    flow->conn_mark = 0;
-    memset(&flow->conn_label, 0, sizeof flow->conn_label);
+    flow->ct_state = 0;
+    flow->ct_zone = 0;
+    flow->ct_mark = 0;
+    memset(&flow->ct_label, 0, sizeof flow->ct_label);
 }
 
 static void
@@ -2835,10 +2835,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     struct flow *flow = &ctx->xin->flow;
     struct flow_tnl flow_tnl;
     ovs_be16 flow_vlan_tci;
-    uint32_t flow_pkt_mark, flow_conn_mark;
-    uint8_t flow_conn_state;
-    uint16_t flow_conn_zone;
-    ovs_u128 flow_conn_label;
+    uint32_t flow_pkt_mark, flow_ct_mark;
+    uint8_t flow_ct_state;
+    uint16_t flow_ct_zone;
+    ovs_u128 flow_ct_label;
     uint8_t flow_nw_tos;
     odp_port_t out_port, odp_port;
     bool tnl_push_pop_send = false;
@@ -2997,11 +2997,11 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
 
     flow_vlan_tci = flow->vlan_tci;
     flow_pkt_mark = flow->pkt_mark;
-    flow_conn_state = flow->conn_state;
-    flow_conn_zone = flow->conn_zone;
-    flow_conn_label = flow->conn_label;
+    flow_ct_state = flow->ct_state;
+    flow_ct_zone = flow->ct_zone;
+    flow_ct_label = flow->ct_label;
     flow_nw_tos = flow->nw_tos;
-    flow_conn_mark = flow->conn_mark;
+    flow_ct_mark = flow->ct_mark;
 
     if (count_skb_priorities(xport)) {
         memset(&wc->masks.skb_priority, 0xff, sizeof wc->masks.skb_priority);
@@ -3122,10 +3122,10 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     /* Restore flow */
     flow->vlan_tci = flow_vlan_tci;
     flow->pkt_mark = flow_pkt_mark;
-    flow->conn_state = flow_conn_state;
-    flow->conn_zone = flow_conn_zone;
-    flow->conn_mark = flow_conn_mark;
-    flow->conn_label = flow_conn_label;
+    flow->ct_state = flow_ct_state;
+    flow->ct_zone = flow_ct_zone;
+    flow->ct_mark = flow_ct_mark;
+    flow->ct_label = flow_ct_label;
     flow->nw_tos = flow_nw_tos;
 }
 
@@ -4230,7 +4230,7 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
     nl_msg_end_nested(odp_actions, ct_offset);
 
     if (ofc->flags & NX_CT_F_RECIRC) {
-        /* Use conn_* fields from datapath during recirculation upcall. */
+        /* Use ct_* fields from datapath during recirculation upcall. */
         ctx->conntracked = true;
         compose_recirculate_action__(ctx, NULL, 0, 0, NULL);
     }

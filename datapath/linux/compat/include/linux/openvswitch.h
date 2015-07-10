@@ -343,10 +343,10 @@ enum ovs_key_attr {
 	OVS_KEY_ATTR_MPLS,      /* array of struct ovs_key_mpls.
 				 * The implementation may restrict
 				 * the accepted length of the array. */
-	OVS_KEY_ATTR_CONN_STATE,/* u8 bitmask of OVS_CS_F_* */
-	OVS_KEY_ATTR_CONN_ZONE, /* u16 connection tracking zone. */
-	OVS_KEY_ATTR_CONN_MARK, /* u32 connection tracking mark */
-	OVS_KEY_ATTR_CONN_LABEL,/* 16-octet connection tracking label */
+	OVS_KEY_ATTR_CT_STATE,  /* u8 bitmask of OVS_CS_F_* */
+	OVS_KEY_ATTR_CT_ZONE,   /* u16 connection tracking zone. */
+	OVS_KEY_ATTR_CT_MARK,   /* u32 connection tracking mark */
+	OVS_KEY_ATTR_CT_LABEL,  /* 16-octet connection tracking label */
 
 #ifdef __KERNEL__
 	/* Only used within kernel data path. */
@@ -461,11 +461,11 @@ struct ovs_key_nd {
 };
 
 #define OVS_CT_LABEL_LEN	16
-struct ovs_key_conn_label {
-	__u8	conn_label[OVS_CT_LABEL_LEN];
+struct ovs_key_ct_label {
+	__u8	ct_label[OVS_CT_LABEL_LEN];
 };
 
-/* OVS_KEY_ATTR_CONN_STATE flags */
+/* OVS_KEY_ATTR_CT_STATE flags */
 #define OVS_CS_F_NEW               0x01 /* Beginning of a new connection. */
 #define OVS_CS_F_ESTABLISHED       0x02 /* Part of an existing connection. */
 #define OVS_CS_F_RELATED           0x04 /* Related to an established

@@ -66,10 +66,10 @@ struct pkt_metadata {
     uint32_t skb_priority;      /* Packet priority for QoS. */
     uint32_t pkt_mark;          /* Packet mark. */
     union flow_in_port in_port; /* Input port. */
-    uint8_t conn_state;         /* Connection state. */
-    uint16_t conn_zone;         /* Connection zone. */
-    uint32_t conn_mark;         /* Connection mark. */
-    ovs_u128 conn_label;        /* Connection label. */
+    uint8_t ct_state;           /* Connection state. */
+    uint16_t ct_zone;           /* Connection zone. */
+    uint32_t ct_mark;           /* Connection mark. */
+    ovs_u128 ct_label;          /* Connection label. */
     struct flow_tnl tunnel;     /* Encapsulating tunnel parameters. */
 };
 
@@ -917,6 +917,6 @@ void compose_arp(struct dp_packet *, uint16_t arp_op,
                  ovs_be32 arp_spa, ovs_be32 arp_tpa);
 uint32_t packet_csum_pseudoheader(const struct ip_header *);
 
-const char *packet_conn_state_to_string(uint32_t flag);
+const char *packet_ct_state_to_string(uint32_t flag);
 
 #endif /* packets.h */

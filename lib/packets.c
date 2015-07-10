@@ -1079,7 +1079,7 @@ packet_csum_pseudoheader(const struct ip_header *ip)
 }
 
 const char *
-packet_conn_state_to_string(uint32_t flag)
+packet_ct_state_to_string(uint32_t flag)
 {
     switch (flag) {
     case CS_REPLY_DIR:

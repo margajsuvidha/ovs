@@ -59,10 +59,10 @@ parse_keys(bool wc_keys)
                 .support = {
                     .max_mpls_depth = SIZE_MAX,
                     .recirc = true,
-                    .conn_state = true,
-                    .conn_zone = true,
-                    .conn_mark = true,
-                    .conn_label = true,
+                    .ct_state = true,
+                    .ct_zone = true,
+                    .ct_mark = true,
+                    .ct_label = true,
                 },
             };
 

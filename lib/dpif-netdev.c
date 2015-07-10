@@ -1952,8 +1952,8 @@ dpif_netdev_flow_from_nlattrs(const struct nlattr *key, uint32_t key_len,
     }
 
     /* Userspace datapath doesn't support conntrack. */
-    if (flow->conn_state || flow->conn_zone || flow->conn_mark
-        || !is_all_zeros(&flow->conn_label, sizeof(flow->conn_label))) {
+    if (flow->ct_state || flow->ct_zone || flow->ct_mark
+        || !is_all_zeros(&flow->ct_label, sizeof(flow->ct_label))) {
         return EINVAL;
     }
 
