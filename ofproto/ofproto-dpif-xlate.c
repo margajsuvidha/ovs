@@ -4446,6 +4446,18 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
                 mf_set_flow_value_masked(mf, &set_field->value,
                                          &set_field->mask, flow);
             }
+
+            /* Some set-field actions require changing datapath state, so
+             * ensure that they are committed to ODP. */
+            if (mf->id == MFF_CT_MARK || mf->id == MFF_CT_LABEL) {
+                bool use_masked = ctx->xbridge->support.masked_set_action;
+
+                ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow,
+                                                      &ctx->base_flow,
+                                                      ctx->xout->odp_actions,
+                                                      &ctx->xout->wc,
+                                                      use_masked);
+            }
             break;
 
         case OFPACT_STACK_PUSH:
