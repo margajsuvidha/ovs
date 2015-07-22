@@ -486,7 +486,7 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
         miniflow_push_uint8(mf, ct_state, md->ct_state);
         miniflow_pad_to_64(mf, pad1);
     }
-    if (!is_all_zeros(&md->ct_label, sizeof md->ct_label)) {
+    if (!ovs_u128_is_zero(&md->ct_label)) {
         miniflow_push_words(mf, ct_label, &md->ct_label,
                             sizeof md->ct_label / 8);
     }
