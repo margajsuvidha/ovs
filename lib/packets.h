@@ -126,6 +126,8 @@ struct pkt_metadata {
     uint32_t skb_priority;      /* Packet priority for QoS. */
     uint32_t pkt_mark;          /* Packet mark. */
     union flow_in_port in_port; /* Input port. */
+    uint8_t ct_state;           /* Connection state. */
+    uint16_t ct_zone;           /* Connection zone. */
     struct flow_tnl tunnel;     /* Encapsulating tunnel parameters. Note that
                                  * if 'ip_dst' == 0, the rest of the fields may
                                  * be uninitialized. */
@@ -710,6 +712,17 @@ struct tcp_header {
 };
 BUILD_ASSERT_DECL(TCP_HEADER_LEN == sizeof(struct tcp_header));
 
+/* Connection states */
+#define CS_NEW               0x01
+#define CS_ESTABLISHED       0x02
+#define CS_RELATED           0x04
+#define CS_INVALID           0x20
+#define CS_REPLY_DIR         0x40
+#define CS_TRACKED           0x80
+
+/* Undefined connection state bits. */
+#define CS_UNSUPPORTED_MASK  0x18
+
 #define ARP_HRD_ETHERNET 1
 #define ARP_PRO_IP 0x0800
 #define ARP_OP_REQUEST 1
@@ -936,5 +949,7 @@ void compose_arp(struct dp_packet *, uint16_t arp_op,
                  const struct eth_addr arp_tha, bool broadcast,
                  ovs_be32 arp_spa, ovs_be32 arp_tpa);
 uint32_t packet_csum_pseudoheader(const struct ip_header *);
+
+const char *packet_ct_state_to_string(uint32_t flag);
 
 #endif /* packets.h */
