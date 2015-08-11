@@ -68,6 +68,7 @@ struct pkt_metadata {
     uint32_t pkt_mark;          /* Packet mark. */
     union flow_in_port in_port; /* Input port. */
     uint8_t ct_state;           /* Connection state. */
+    uint16_t ct_zone;           /* Connection zone. */
     struct flow_tnl tunnel;     /* Encapsulating tunnel parameters. */
 };
 

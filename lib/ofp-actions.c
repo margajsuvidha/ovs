@@ -4509,6 +4509,8 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
             oc->flags |= NX_CT_F_COMMIT;
         } else if (!strcmp(key, "recirc")) {
             oc->flags |= NX_CT_F_RECIRC;
+        } else if (!strcmp(key, "zone")) {
+            error = str_to_u16(value, "zone", &oc->zone);
         } else {
             error = xasprintf("invalid key \"%s\" in \"ct\" argument",
                               key);
@@ -4523,9 +4525,10 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
 static void
 format_CT(const struct ofpact_conntrack *a, struct ds *s)
 {
-    ds_put_format(s, "ct(%s%s)",
+    ds_put_format(s, "ct(%s%s",
                   a->flags & NX_CT_F_COMMIT ? "commit," : "",
                   a->flags & NX_CT_F_RECIRC ? "recirc," : "");
+    ds_put_format(s, "zone=%"PRIu16")", a->zone);
 }
 
 /* Meter instruction. */

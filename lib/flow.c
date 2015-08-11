@@ -500,7 +500,8 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
         miniflow_pad_to_64(mf, conj_id);
     }
 
-    if (md->ct_state) {
+    if (md->ct_zone || md->ct_state) {
+        miniflow_push_uint16(mf, ct_zone, md->ct_zone);
         miniflow_push_uint8(mf, ct_state, md->ct_state);
         miniflow_pad_to_64(mf, pad1);
     }
@@ -861,6 +862,9 @@ flow_get_metadata(const struct flow *flow, struct match *flow_metadata)
     if (flow->ct_state != 0) {
         match_set_ct_state(flow_metadata, flow->ct_state);
     }
+    if (flow->ct_zone != 0) {
+        match_set_ct_zone(flow_metadata, flow->ct_zone);
+    }
 }
 
 char *
@@ -1139,6 +1143,9 @@ flow_format(struct ds *ds, const struct flow *flow)
     if (!flow->ct_state) {
         WC_UNMASK_FIELD(wc, ct_state);
     }
+    if (!flow->ct_zone) {
+        WC_UNMASK_FIELD(wc, ct_zone);
+    }
     for (int i = 0; i < FLOW_N_REGS; i++) {
         if (!flow->regs[i]) {
             WC_UNMASK_FIELD(wc, regs[i]);
@@ -1214,6 +1221,7 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
     WC_MASK_FIELD(wc, skb_priority);
     WC_MASK_FIELD(wc, pkt_mark);
     WC_MASK_FIELD(wc, ct_state);
+    WC_MASK_FIELD(wc, ct_zone);
     WC_MASK_FIELD(wc, recirc_id);
     WC_MASK_FIELD(wc, dp_hash);
     WC_MASK_FIELD(wc, in_port);
@@ -1318,6 +1326,7 @@ flow_wc_map(const struct flow *flow, struct flowmap *map)
     FLOWMAP_SET(map, dl_type);
     FLOWMAP_SET(map, vlan_tci);
     FLOWMAP_SET(map, ct_state);
+    FLOWMAP_SET(map, ct_zone);
 
     /* Ethertype-dependent fields. */
     if (OVS_LIKELY(flow->dl_type == htons(ETH_TYPE_IP))) {

@@ -210,6 +210,8 @@ mf_is_all_wild(const struct mf_field *mf, const struct flow_wildcards *wc)
         return !wc->masks.pkt_mark;
     case MFF_CT_STATE:
         return !wc->masks.ct_state;
+    case MFF_CT_ZONE:
+        return !wc->masks.ct_zone;
     CASE_MFF_REGS:
         return !wc->masks.regs[mf->id - MFF_REG0];
     CASE_MFF_XREGS:
@@ -497,6 +499,7 @@ mf_is_value_valid(const struct mf_field *mf, const union mf_value *value)
     case MFF_SKB_PRIORITY:
     case MFF_PKT_MARK:
     case MFF_CT_STATE:
+    case MFF_CT_ZONE:
     CASE_MFF_REGS:
     CASE_MFF_XREGS:
     case MFF_ETH_SRC:
@@ -646,6 +649,10 @@ mf_get_value(const struct mf_field *mf, const struct flow *flow,
 
     case MFF_CT_STATE:
         value->u8 = flow->ct_state;
+        break;
+
+    case MFF_CT_ZONE:
+        value->be16 = htons(flow->ct_zone);
         break;
 
     CASE_MFF_REGS:
@@ -874,6 +881,10 @@ mf_set_value(const struct mf_field *mf,
 
     case MFF_CT_STATE:
         match_set_ct_state(match, value->u8);
+        break;
+
+    case MFF_CT_ZONE:
+        match_set_ct_zone(match, ntohs(value->be16));
         break;
 
     CASE_MFF_REGS:
@@ -1159,6 +1170,10 @@ mf_set_flow_value(const struct mf_field *mf,
         flow->ct_state = value->u8;
         break;
 
+    case MFF_CT_ZONE:
+        flow->ct_zone = ntohs(value->be16);
+        break;
+
     CASE_MFF_REGS:
         flow->regs[mf->id - MFF_REG0] = ntohl(value->be32);
         break;
@@ -1432,6 +1447,11 @@ mf_set_wild(const struct mf_field *mf, struct match *match)
         match->wc.masks.ct_state = 0;
         break;
 
+    case MFF_CT_ZONE:
+        match->flow.ct_zone = 0;
+        match->wc.masks.ct_zone = 0;
+        break;
+
     CASE_MFF_REGS:
         match_set_reg_masked(match, mf->id - MFF_REG0, 0, 0);
         break;
@@ -1609,6 +1629,7 @@ mf_set(const struct mf_field *mf,
     }
 
     switch (mf->id) {
+    case MFF_CT_ZONE:
     case MFF_RECIRC_ID:
     case MFF_CONJ_ID:
     case MFF_IN_PORT:

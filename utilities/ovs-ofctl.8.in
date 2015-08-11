@@ -1321,6 +1321,9 @@ The following fields are data associated with the connection tracker and
 can only be matched or set after running through the connection tracker
 by using the \fBct\fR action.
 .
+.IP \fBct_zone=\fIvalue
+Matches connection zone \fIvalue\fR exactly.
+.
 .PP
 Defining IPv6 flows (those with \fBdl_type\fR equal to 0x86dd) requires
 support for NXM.  The following shorthand notations are available for
@@ -1569,6 +1572,10 @@ The packet should be sent back for further processing with the
 \fBct_state\fR match fields set.
 .IP \fBcommit\fR
 Commit the flow to the connection tracking module.
+.IP \fBzone=\fR\fIzone\fR
+A 16-bit context id that can be used to isolate connections into
+separate domains that allow overlapping network addresses.  If a zone is
+not provided, then the default is to use zone zero.
 .RE
 .IP
 Currently, connection tracking is only available on Linux kernels with the

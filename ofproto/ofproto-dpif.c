@@ -1262,6 +1262,7 @@ check_##NAME(struct dpif_backer *backer)                                    \
 #define CHECK_FEATURE(FIELD) CHECK_FEATURE__(FIELD, FIELD)
 
 CHECK_FEATURE(ct_state)
+CHECK_FEATURE(ct_zone)
 
 #undef CHECK_FEATURE
 #undef CHECK_FEATURE__
@@ -1279,6 +1280,7 @@ check_support(struct dpif_backer *backer)
     backer->support.tnl_push_pop = dpif_supports_tnl_push_pop(backer->dpif);
 
     backer->support.odp.ct_state = check_ct_state(backer);
+    backer->support.odp.ct_zone = check_ct_zone(backer);
 }
 
 static int
@@ -3984,7 +3986,8 @@ rule_check(struct rule *rule)
     minimatch_expand(&rule->cr.match, &match);
     support = &ofproto_dpif_get_support(ofproto)->odp;
 
-    if (match.wc.masks.ct_state && !support->ct_state) {
+    if ((match.wc.masks.ct_state && !support->ct_state)
+        || (match.wc.masks.ct_zone && !support->ct_zone)) {
         return OFPERR_OFPBMC_BAD_FIELD;
     }
     if (match.wc.masks.ct_state & CS_UNSUPPORTED_MASK) {

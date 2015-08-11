@@ -60,6 +60,7 @@ parse_keys(bool wc_keys)
                     .max_mpls_depth = SIZE_MAX,
                     .recirc = true,
                     .ct_state = true,
+                    .ct_zone = true,
                 },
             };
 

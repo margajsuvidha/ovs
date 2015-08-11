@@ -1610,6 +1610,7 @@ head_table () {
       actset_output: exact match or wildcard
       pkt_mark: arbitrary mask
       ct_state: arbitrary mask
+      ct_zone: exact match or wildcard
       reg0: arbitrary mask
       reg1: arbitrary mask
       reg2: arbitrary mask
