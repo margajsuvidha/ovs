@@ -6071,7 +6071,7 @@ ofpacts_verify_ct(const struct ofpact *a, enum ofpact_type outer_action)
 
     if (outer_action == OFPACT_CT) {
         if (field) {
-            if (field->id != MFF_CT_MARK) {
+            if (field->id != MFF_CT_MARK && field->id != MFF_CT_LABEL) {
                 VLOG_WARN("\"ct\" nested actions can only set CT fields");
                 return OFPERR_OFPBAC_BAD_SET_ARGUMENT;
             }
@@ -6081,7 +6081,7 @@ ofpacts_verify_ct(const struct ofpact *a, enum ofpact_type outer_action)
             return OFPERR_OFPBAC_BAD_ARGUMENT;
         }
     } else {
-        if (field && field->id == MFF_CT_MARK) {
+        if (field && (field->id == MFF_CT_MARK || field->id == MFF_CT_LABEL)) {
             VLOG_WARN("cannot set CT fields outside of \"ct\" action");
             return OFPERR_OFPBAC_BAD_SET_ARGUMENT;
         }
