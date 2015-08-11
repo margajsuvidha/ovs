@@ -102,7 +102,7 @@ NS_CHECK_EXEC([at_ns0], [ping6 -s 3200 -q -c 3 -i 0.3 -w 2 fc00:1::2 | FORMAT_PI
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
-AT_SETUP([kmod - ping over vxlan tunnel])
+AT_SETUP([datapath - ping over vxlan tunnel])
 AT_SKIP_IF([! ip link help 2>&1 | grep vxlan >/dev/null])
 
 OVS_TRAFFIC_VSWITCHD_START(
