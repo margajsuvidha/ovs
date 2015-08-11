@@ -15,6 +15,8 @@
  */
 
 #include <config.h>
+#include <netinet/in.h>
+
 #include "ofp-actions.h"
 #include "bundle.h"
 #include "byte-order.h"
@@ -4511,6 +4513,8 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
             oc->flags |= NX_CT_F_RECIRC;
         } else if (!strcmp(key, "zone")) {
             error = str_to_u16(value, "zone", &oc->zone);
+        } else if (!strcmp(key, "alg")) {
+            error = str_to_connhelper(value, &oc->alg);
         } else {
             error = xasprintf("invalid key \"%s\" in \"ct\" argument",
                               key);
@@ -4523,11 +4527,22 @@ parse_CT(char *arg, struct ofpbuf *ofpacts,
 }
 
 static void
+format_alg(int port, struct ds *s)
+{
+    if (port == IPPORT_FTP) {
+        ds_put_format(s, "alg=ftp,");
+    } else if (port) {
+        ds_put_format(s, "alg=%d,", port);
+    }
+}
+
+static void
 format_CT(const struct ofpact_conntrack *a, struct ds *s)
 {
     ds_put_format(s, "ct(%s%s",
                   a->flags & NX_CT_F_COMMIT ? "commit," : "",
                   a->flags & NX_CT_F_RECIRC ? "recirc," : "");
+    format_alg(a->alg, s);
     ds_put_format(s, "zone=%"PRIu16")", a->zone);
 }
 
