@@ -2796,6 +2796,7 @@ clear_conntrack(struct flow *flow)
     flow->ct_state = 0;
     flow->ct_zone = 0;
     flow->ct_mark = 0;
+    memset(&flow->ct_label, 0, sizeof flow->ct_label);
 }
 
 static void
@@ -2810,6 +2811,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     uint32_t flow_pkt_mark, flow_ct_mark;
     uint8_t flow_ct_state;
     uint16_t flow_ct_zone;
+    ovs_u128 flow_ct_label;
     uint8_t flow_nw_tos;
     odp_port_t out_port, odp_port;
     bool tnl_push_pop_send = false;
@@ -2959,6 +2961,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     flow_ct_state = flow->ct_state;
     flow_ct_zone = flow->ct_zone;
     flow_ct_mark = flow->ct_mark;
+    flow_ct_label = flow->ct_label;
     flow_nw_tos = flow->nw_tos;
 
     if (count_skb_priorities(xport)) {
@@ -3088,6 +3091,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     flow->ct_state = flow_ct_state;
     flow->ct_zone = flow_ct_zone;
     flow->ct_mark = flow_ct_mark;
+    flow->ct_label = flow_ct_label;
     flow->nw_tos = flow_nw_tos;
 }
 
@@ -4401,7 +4405,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
 
             /* Some set-field actions require changing datapath state, so
              * ensure that they are committed to ODP. */
-            if (mf->id == MFF_CT_MARK) {
+            if (mf->id == MFF_CT_MARK || mf->id == MFF_CT_LABEL) {
                 bool use_masked = ctx->xbridge->support.masked_set_action;
 
                 ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow,

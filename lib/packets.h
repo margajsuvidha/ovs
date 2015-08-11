@@ -70,6 +70,7 @@ struct pkt_metadata {
     uint8_t ct_state;           /* Connection state. */
     uint16_t ct_zone;           /* Connection zone. */
     uint32_t ct_mark;           /* Connection mark. */
+    ovs_u128 ct_label;          /* Connection label. */
     struct flow_tnl tunnel;     /* Encapsulating tunnel parameters. */
 };
 

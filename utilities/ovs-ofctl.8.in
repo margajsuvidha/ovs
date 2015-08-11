@@ -1328,6 +1328,10 @@ Matches connection zone \fIvalue\fR exactly.
 Matches connection mark \fIvalue\fR either exactly or with optional
 \fImask\fR.
 .
+.IP \fBct_label=\fIvalue\fR[\fB/\fImask\fR]
+Matches connection label \fIvalue\fR either exactly or with optional
+\fImask\fR.
+.
 .PP
 Defining IPv6 flows (those with \fBdl_type\fR equal to 0x86dd) requires
 support for NXM.  The following shorthand notations are available for

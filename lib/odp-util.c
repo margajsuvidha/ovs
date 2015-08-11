@@ -138,6 +138,7 @@ ovs_key_attr_to_string(enum ovs_key_attr attr, char *namebuf, size_t bufsize)
     case OVS_KEY_ATTR_CT_STATE: return "ct_state";
     case OVS_KEY_ATTR_CT_ZONE: return "ct_zone";
     case OVS_KEY_ATTR_CT_MARK: return "ct_mark";
+    case OVS_KEY_ATTR_CT_LABEL: return "ct_label";
     case OVS_KEY_ATTR_TUNNEL: return "tunnel";
     case OVS_KEY_ATTR_IN_PORT: return "in_port";
     case OVS_KEY_ATTR_ETHERNET: return "eth";
@@ -1319,6 +1320,7 @@ static const struct attr_len_tbl ovs_flow_key_attr_lens[OVS_KEY_ATTR_MAX + 1] = 
     [OVS_KEY_ATTR_CT_STATE]  = { .len = 1 },
     [OVS_KEY_ATTR_CT_ZONE]   = { .len = 2 },
     [OVS_KEY_ATTR_CT_MARK]   = { .len = 4 },
+    [OVS_KEY_ATTR_CT_LABEL]  = { .len = sizeof(struct ovs_key_ct_label) },
 };
 
 /* Returns the correct length of the payload for a flow key attribute of the
@@ -2205,6 +2207,18 @@ format_odp_key_attr(const struct nlattr *a, const struct nlattr *ma,
         }
         break;
 
+    case OVS_KEY_ATTR_CT_LABEL: {
+        const struct ovs_key_ct_label *mask = ma ? nl_attr_get(ma) : NULL;
+
+        if (verbose || (mask && !is_all_zeros(mask, sizeof(*mask)))) {
+            ds_put_hex(ds, nl_attr_get(a), nl_attr_get_size(a));
+            if (mask && !is_exact) {
+                ds_put_char(ds, '/');
+                ds_put_hex(ds, MASK(mask, ct_label), sizeof(*mask));
+            }
+        }
+        break;
+    }
 
     case OVS_KEY_ATTR_TUNNEL:
         format_odp_tun_attr(a, ma, ds, verbose);
@@ -2411,6 +2425,28 @@ generate_all_wildcard_mask(const struct attr_len_tbl tbl[], int max,
     }
 
     return ofp->base;
+}
+
+static int
+scan_u128(const char *s_, ovs_u128 *key, ovs_u128 *mask)
+{
+    char *s = CONST_CAST(char *, s_);
+    int n;
+
+    if (parse_int_string(s, (uint8_t *)key, sizeof(*key), &s)) {
+        return 0;
+    }
+
+    if (ovs_scan(s, "/%n", &n)) {
+        s += n;
+        if (parse_int_string(s, (uint8_t *)mask, sizeof(*mask), &s)) {
+            return 0;
+        }
+    } else {
+        mask->u64.hi = mask->u64.lo = UINT64_MAX;
+    }
+
+    return s - s_;
 }
 
 int
@@ -3318,6 +3354,7 @@ parse_odp_key_mask_attr(const char *s, const struct simap *port_names,
     SCAN_SINGLE("ct_state(", uint8_t, ct_state, OVS_KEY_ATTR_CT_STATE);
     SCAN_SINGLE("ct_zone(", uint16_t, u16, OVS_KEY_ATTR_CT_ZONE);
     SCAN_SINGLE("ct_mark(", uint32_t, u32, OVS_KEY_ATTR_CT_MARK);
+    SCAN_SINGLE("ct_label(", ovs_u128, u128, OVS_KEY_ATTR_CT_LABEL);
 
     SCAN_BEGIN_NESTED("tunnel(", OVS_KEY_ATTR_TUNNEL) {
         SCAN_FIELD_NESTED("tun_id=", ovs_be64, be64, OVS_TUNNEL_KEY_ATTR_ID);
@@ -3562,6 +3599,10 @@ odp_flow_key_from_flow__(const struct odp_flow_key_parms *parms,
     if (parms->support.ct_mark) {
         nl_msg_put_u32(buf, OVS_KEY_ATTR_CT_MARK, data->ct_mark);
     }
+    if (parms->support.ct_label) {
+        nl_msg_put_unspec(buf, OVS_KEY_ATTR_CT_LABEL, &data->ct_label,
+                          sizeof(data->ct_label));
+    }
     if (parms->support.recirc) {
         nl_msg_put_u32(buf, OVS_KEY_ATTR_RECIRC_ID, data->recirc_id);
         nl_msg_put_u32(buf, OVS_KEY_ATTR_DP_HASH, data->dp_hash);
@@ -3753,6 +3794,10 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
     if (md->ct_mark) {
         nl_msg_put_u32(buf, OVS_KEY_ATTR_CT_MARK, md->ct_mark);
     }
+    if (!is_all_zeros(&md->ct_label, sizeof(md->ct_label))) {
+        nl_msg_put_unspec(buf, OVS_KEY_ATTR_CT_LABEL, &md->ct_label,
+                          sizeof(md->ct_label));
+    }
 
     /* Add an ingress port attribute if 'odp_in_port' is not the magical
      * value "ODPP_NONE". */
@@ -3813,6 +3858,13 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             md->ct_mark = nl_attr_get_u32(nla);
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_CT_MARK);
             break;
+        case OVS_KEY_ATTR_CT_LABEL: {
+            const ovs_u128 *cl = nl_attr_get(nla);
+
+            md->ct_label = *cl;
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_CT_LABEL);
+            break;
+        }
         case OVS_KEY_ATTR_TUNNEL: {
             enum odp_key_fitness res;
 
@@ -4378,6 +4430,12 @@ odp_flow_key_to_flow__(const struct nlattr *key, size_t key_len,
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_CT_MARK)) {
         flow->ct_mark = nl_attr_get_u32(attrs[OVS_KEY_ATTR_CT_MARK]);
         expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_CT_MARK;
+    }
+    if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_CT_LABEL)) {
+        const ovs_u128 *cl = nl_attr_get(attrs[OVS_KEY_ATTR_CT_LABEL]);
+
+        flow->ct_label = *cl;
+        expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_CT_LABEL;
     }
 
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_TUNNEL)) {
@@ -5114,6 +5172,25 @@ commit_set_ct_mark_action(const struct flow *flow, struct flow *base_flow,
     }
 }
 
+static void
+commit_set_ct_label_action(const struct flow *flow, struct flow *base_flow,
+                             struct ofpbuf *odp_actions,
+                             struct flow_wildcards *wc,
+                             bool use_masked)
+{
+    ovs_u128 key, mask, base;
+
+    key = flow->ct_label;
+    base = base_flow->ct_label;
+    mask = wc->masks.ct_label;
+
+    if (commit(OVS_KEY_ATTR_CT_LABEL, use_masked, &key, &base, &mask,
+               sizeof key, odp_actions)) {
+        base_flow->ct_label = base;
+        wc->masks.ct_label = mask;
+    }
+}
+
 /* If any of the flow key data that ODP actions can modify are different in
  * 'base' and 'flow', appends ODP actions to 'odp_actions' that change the flow
  * key from 'base' into 'flow', and then changes 'base' the same way.  Does not
@@ -5138,6 +5215,7 @@ commit_odp_actions(const struct flow *flow, struct flow *base,
     commit_set_priority_action(flow, base, odp_actions, wc, use_masked);
     commit_set_pkt_mark_action(flow, base, odp_actions, wc, use_masked);
     commit_set_ct_mark_action(flow, base, odp_actions, wc, use_masked);
+    commit_set_ct_label_action(flow, base, odp_actions, wc, use_masked);
 
     return slow;
 }
