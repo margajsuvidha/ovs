@@ -218,6 +218,8 @@ mf_is_all_wild(const struct mf_field *mf, const struct flow_wildcards *wc)
         return !wc->masks.ct_state;
     case MFF_CT_ZONE:
         return !wc->masks.ct_zone;
+    case MFF_CT_MARK:
+        return !wc->masks.ct_mark;
     CASE_MFF_REGS:
         return !wc->masks.regs[mf->id - MFF_REG0];
     CASE_MFF_XREGS:
@@ -503,6 +505,7 @@ mf_is_value_valid(const struct mf_field *mf, const union mf_value *value)
     case MFF_PKT_MARK:
     case MFF_CT_STATE:
     case MFF_CT_ZONE:
+    case MFF_CT_MARK:
     CASE_MFF_REGS:
     CASE_MFF_XREGS:
     case MFF_ETH_SRC:
@@ -656,6 +659,10 @@ mf_get_value(const struct mf_field *mf, const struct flow *flow,
 
     case MFF_CT_ZONE:
         value->be16 = htons(flow->ct_zone);
+        break;
+
+    case MFF_CT_MARK:
+        value->be32 = htonl(flow->ct_mark);
         break;
 
     CASE_MFF_REGS:
@@ -888,6 +895,10 @@ mf_set_value(const struct mf_field *mf,
 
     case MFF_CT_ZONE:
         match_set_ct_zone(match, ntohs(value->be16));
+        break;
+
+    case MFF_CT_MARK:
+        match_set_ct_mark(match, ntohl(value->be32));
         break;
 
     CASE_MFF_REGS:
@@ -1182,6 +1193,10 @@ mf_set_flow_value(const struct mf_field *mf,
         flow->ct_zone = ntohs(value->be16);
         break;
 
+    case MFF_CT_MARK:
+        flow->ct_mark = ntohl(value->be32);
+        break;
+
     CASE_MFF_REGS:
         flow->regs[mf->id - MFF_REG0] = ntohl(value->be32);
         break;
@@ -1473,6 +1488,11 @@ mf_set_wild(const struct mf_field *mf, struct match *match)
         match->wc.masks.ct_zone = 0;
         break;
 
+    case MFF_CT_MARK:
+        match->flow.ct_mark = 0;
+        match->wc.masks.ct_mark = 0;
+        break;
+
     CASE_MFF_REGS:
         match_set_reg_masked(match, mf->id - MFF_REG0, 0, 0);
         break;
@@ -1730,6 +1750,10 @@ mf_set(const struct mf_field *mf,
 
     case MFF_CT_STATE:
         match_set_ct_state_masked(match, value->u8, mask->u8);
+        break;
+
+    case MFF_CT_MARK:
+        match_set_ct_mark_masked(match, ntohl(value->be32), ntohl(mask->be32));
         break;
 
     case MFF_ETH_DST:
