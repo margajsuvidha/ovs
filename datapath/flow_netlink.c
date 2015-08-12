@@ -1305,6 +1305,7 @@ int ovs_nla_get_flow_metadata(const struct nlattr *attr,
 	match.key = key;
 
 	memset(key, 0, OVS_SW_FLOW_KEY_METADATA_SIZE);
+	memset(&key->ct, 0, sizeof key->ct);
 	key->phy.in_port = DP_MAX_PORTS;
 
 	return metadata_from_nlattrs(&match, &attrs, a, false, log);
