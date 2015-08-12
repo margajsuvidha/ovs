@@ -616,7 +616,8 @@ in_port=2,icmp,ct_state=+trk+rel,ct_mark=1,action=1
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 dnl UDP packets from ns0->ns1 should solicit "destination unreachable" response.
-NS_CHECK_EXEC([at_ns0], [bash -c "echo a | nc -q 0 -u 10.1.1.2 10000"])
+dnl We pass "-q 1" here to handle openbsd-style nc that can't quit immediately.
+NS_CHECK_EXEC([at_ns0], [bash -c "echo a | nc -q 1 -u 10.1.1.2 10000"])
 
 AT_CHECK([ovs-appctl revalidator/purge], [0])
 AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop], [0], [dnl
