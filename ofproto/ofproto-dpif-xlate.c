@@ -75,6 +75,12 @@ VLOG_DEFINE_THIS_MODULE(ofproto_dpif_xlate);
  * recursive or not. */
 #define MAX_RESUBMITS (MAX_RESUBMIT_RECURSION * MAX_RESUBMIT_RECURSION)
 
+enum xlate_ct_state {
+    XLATE_CT_NONE,
+    XLATE_CT_DEFERRED,
+    XLATE_CT_COMPOSED
+};
+
 struct xbridge {
     struct hmap_node hmap_node;   /* Node in global 'xbridges' map. */
     struct ofproto_dpif *ofproto; /* Key in global 'xbridges' map. */
@@ -300,10 +306,13 @@ struct xlate_ctx {
      * the MPLS label stack that was originally present. */
     bool was_mpls;
 
-    /* True if conntrack has been performed on this packet during processing
-     * on the current bridge. This is used to determine whether conntrack
-     * state from the datapath should be honored after recirculation. */
-    bool conntracked;
+    /* Tracks the state of conntrack translation. If this state is
+     * XLATE_CT_COMPOSED, then datapath ct_state will be honoured after
+     * recirculation. */
+    enum xlate_ct_state xlate_ct;
+
+    /* Points to the most recent conntrack action, or NULL. */
+    struct ofpact_conntrack *ofpact_ct;
 
     /* OpenFlow 1.1+ action set.
      *
@@ -316,6 +325,7 @@ struct xlate_ctx {
 };
 
 static void xlate_action_set(struct xlate_ctx *ctx);
+static void xlate_commit_actions(struct xlate_ctx *ctx);
 
 static void
 ctx_trigger_recirculation(struct xlate_ctx *ctx)
@@ -336,6 +346,26 @@ exit_recirculates(const struct xlate_ctx *ctx)
     /* When recirculating the 'recirc_action_offset' has a non-negative value.
      */
     return ctx->recirc_action_offset >= 0;
+}
+
+static bool
+ctx_conntracked(const struct xlate_ctx *ctx)
+{
+    return ctx->xlate_ct == XLATE_CT_COMPOSED;
+}
+
+static bool
+xlate_ct_deferred(const struct xlate_ctx *ctx)
+{
+    return ctx->xlate_ct == XLATE_CT_DEFERRED;
+}
+
+static struct ofpact_conntrack *ctx_ct_action(const struct xlate_ctx *ctx)
+{
+    if (xlate_ct_deferred(ctx)) {
+        return ctx->ofpact_ct;
+    }
+    return NULL;
 }
 
 static void compose_recirculate_action(struct xlate_ctx *ctx);
@@ -473,6 +503,8 @@ struct xlate_bond_recirc {
 
 static void compose_output_action(struct xlate_ctx *, ofp_port_t ofp_port,
                                   const struct xlate_bond_recirc *xr);
+static void compose_conntrack_action__(struct xlate_ctx *ctx,
+                                       struct ofpact_conntrack *ofc);
 
 static struct xbridge *xbridge_lookup(struct xlate_cfg *,
                                       const struct ofproto_dpif *);
@@ -2800,10 +2832,14 @@ clear_conntrack(struct flow *flow)
 }
 
 static void
-commit_actions(struct xlate_ctx *ctx)
+xlate_commit_actions(struct xlate_ctx *ctx)
 {
     bool use_masked = ctx->xbridge->support.masked_set_action;
+    struct ofpact_conntrack *ofc = ctx_ct_action(ctx);
 
+    if (ofc) {
+        compose_conntrack_action__(ctx, ofc);
+    }
     ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
                                           ctx->odp_actions, ctx->wc,
                                           use_masked);
@@ -2869,7 +2905,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         struct flow old_flow = ctx->xin->flow;
         bool old_was_mpls = ctx->was_mpls;
         cls_version_t old_version = ctx->tables_version;
-        bool old_conntracked = ctx->conntracked;
+        enum xlate_ct_state old_conntrack = ctx->xlate_ct;
         struct ofpbuf old_stack = ctx->stack;
         union mf_subvalue new_stack[1024 / sizeof(union mf_subvalue)];
         struct ofpbuf old_action_set = ctx->action_set;
@@ -2883,7 +2919,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         memset(&flow->tunnel, 0, sizeof flow->tunnel);
         memset(flow->regs, 0, sizeof flow->regs);
         flow->actset_output = OFPP_UNSET;
-        ctx->conntracked = false;
+        ctx->xlate_ct = XLATE_CT_NONE;
         clear_conntrack(flow);
 
         /* The bridge is now known so obtain its table version. */
@@ -2939,7 +2975,9 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
          * bridge. */
         ctx->was_mpls = old_was_mpls;
 
-        ctx->conntracked = old_conntracked;
+        /* The peer bridge's conntrack execution should have no effect on the
+         * original bridge. */
+        ctx->xlate_ct = old_conntrack;
 
         /* The fact that the peer bridge exits (for any reason) does not mean
          * that the original bridge should exit.  Specifically, if the peer
@@ -3033,7 +3071,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     }
 
     if (out_port != ODPP_NONE) {
-        commit_actions(ctx);
+        xlate_commit_actions(ctx);
 
         if (xr) {
             struct ovs_action_hash *act_hash;
@@ -3496,7 +3534,7 @@ execute_controller_action(struct xlate_ctx *ctx, int len,
 
     packet = dp_packet_clone(ctx->xin->packet);
 
-    commit_actions(ctx);
+    xlate_commit_actions(ctx);
 
     odp_execute_actions(NULL, &packet, 1, false,
                         ctx->odp_actions->data, ctx->odp_actions->size, NULL);
@@ -3550,7 +3588,7 @@ compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
         .metadata = md,
         .stack = stack,
         .mirrors = ctx->mirrors,
-        .conntrack = ctx->conntracked,
+        .conntrack = ctx_conntracked(ctx),
         .action_set_len = action_offset,
         .ofpacts_len = ofpacts_len,
         .ofpacts = ofpacts,
@@ -3586,7 +3624,7 @@ compose_recirculate_action__(struct xlate_ctx *ctx, struct ofpbuf *stack,
 static void
 compose_recirculate_action(struct xlate_ctx *ctx)
 {
-    commit_actions(ctx);
+    xlate_commit_actions(ctx);
 
     compose_recirculate_action__(ctx, &ctx->stack, ctx->recirc_action_offset,
                                  ctx->action_set.size, ctx->action_set.data);
@@ -3607,7 +3645,7 @@ compose_mpls_push_action(struct xlate_ctx *ctx, struct ofpact_push_mpls *mpls)
 
     n = flow_count_mpls_labels(flow, ctx->wc);
     if (!n) {
-        commit_actions(ctx);
+        xlate_commit_actions(ctx);
     } else if (n >= FLOW_MAX_MPLS_LABELS) {
         if (ctx->xin->packet != NULL) {
             static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
@@ -3959,7 +3997,7 @@ xlate_sample_action(struct xlate_ctx *ctx,
         return;
     }
 
-    commit_actions(ctx);
+    xlate_commit_actions(ctx);
 
     union user_action_cookie cookie = {
         .flow_sample = {
@@ -4169,16 +4207,10 @@ put_connhelper(struct ofpbuf *odp_actions, struct ofpact_conntrack *ofc)
 }
 
 static void
-compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
+compose_conntrack_action__(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
 {
     uint32_t flags = 0;
     size_t ct_offset;
-    bool use_masked;
-
-    use_masked = ctx->xbridge->support.masked_set_action;
-    ctx->xout->slow |= commit_odp_actions(&ctx->xin->flow, &ctx->base_flow,
-                                          ctx->odp_actions, ctx->wc,
-                                          use_masked);
 
     if (ofc->flags & NX_CT_F_COMMIT) {
         flags |= OVS_CT_F_COMMIT;
@@ -4192,8 +4224,34 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
 
     if (ofc->flags & NX_CT_F_RECIRC) {
         /* Use ct_* fields from datapath during recirculation upcall. */
-        ctx->conntracked = true;
+        ctx->xlate_ct = XLATE_CT_COMPOSED;
         compose_recirculate_action__(ctx, NULL, 0, 0, NULL);
+    } else {
+        /* If we do not recirculate as part of this action, hide the results of
+         * connection tracking from subsequent recirculations. */
+        ctx->xlate_ct = XLATE_CT_NONE;
+    }
+}
+
+/* XXX This basically says that "ct(recirc),set_field(X->ct_mark)" is not a
+ * valid way to set a mark for a connection. Figure out if we should allow this
+ * case. */
+static void
+compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
+{
+    /* Ensure that any prior actions are applied before composing the new
+     * conntrack action. */
+    xlate_commit_actions(ctx);
+
+    /* If there's a recirc flag, then compose the conntrack action now.
+     * Otherwise, try to defer the work until it is strictly necessary. This
+     * allows OpenFlow actions like "ct(),set_field(XX->ct_mark)" to be
+     * combined into a single datapath action. */
+    if ((ofc->flags & NX_CT_F_RECIRC)) {
+        compose_conntrack_action__(ctx, ofc);
+    } else {
+        ctx->xlate_ct = XLATE_CT_DEFERRED;
+        ctx->ofpact_ct = ofc;
     }
 }
 
@@ -4411,7 +4469,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             /* Some set-field actions require changing datapath state, so
              * ensure that they are committed to ODP. */
             if (mf->id == MFF_CT_MARK || mf->id == MFF_CT_LABEL) {
-                commit_actions(ctx);
+                xlate_commit_actions(ctx);
             }
             break;
 
@@ -4875,7 +4933,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         .last_unroll_offset = -1,
 
         .was_mpls = false,
-        .conntracked = false,
+        .xlate_ct = XLATE_CT_NONE,
 
         .action_set_has_group = false,
         .action_set = OFPBUF_STUB_INITIALIZER(action_set_stub),
