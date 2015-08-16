@@ -543,9 +543,13 @@ format_odp_conntrack_action(struct ds *ds, const struct nlattr *attr)
     static const struct nl_policy ovs_conntrack_policy[] = {
         [OVS_CT_ATTR_FLAGS] = { .type = NL_A_U32, .optional = true },
         [OVS_CT_ATTR_ZONE] = { .type = NL_A_U16, .optional = true },
+        [OVS_CT_ATTR_MARK] = { .type = NL_A_UNSPEC, .optional = true },
+        [OVS_CT_ATTR_LABEL] = { .type = NL_A_UNSPEC, .optional = true },
         [OVS_CT_ATTR_HELPER] = { .type = NL_A_STRING, .optional = true },
     };
     struct nlattr *a[ARRAY_SIZE(ovs_conntrack_policy)];
+    const ovs_u128 *label;
+    const uint32_t *mark;
     const char *helper;
     uint32_t flags;
     uint16_t zone;
@@ -557,6 +561,8 @@ format_odp_conntrack_action(struct ds *ds, const struct nlattr *attr)
 
     flags = a[OVS_CT_ATTR_FLAGS] ? nl_attr_get_u32(a[OVS_CT_ATTR_FLAGS]) : 0;
     zone = a[OVS_CT_ATTR_ZONE] ? nl_attr_get_u16(a[OVS_CT_ATTR_ZONE]) : 0;
+    mark = a[OVS_CT_ATTR_MARK] ? nl_attr_get(a[OVS_CT_ATTR_MARK]) : NULL;
+    label = a[OVS_CT_ATTR_LABEL] ? nl_attr_get(a[OVS_CT_ATTR_LABEL]): NULL;
     helper = a[OVS_CT_ATTR_HELPER] ? nl_attr_get(a[OVS_CT_ATTR_HELPER]) : NULL;
 
     ds_put_format(ds, "ct");
@@ -570,6 +576,22 @@ format_odp_conntrack_action(struct ds *ds, const struct nlattr *attr)
                 ds_put_char(ds, ',');
             }
             ds_put_format(ds, "zone=%"PRIu16, zone);
+        }
+        if (mark) {
+            if (ds_last(ds) != '(') {
+                ds_put_char(ds, ',');
+            }
+            ds_put_format(ds, "mark=%"PRIx32"/%"PRIx32, *mark,
+                          *(mark + 1));
+        }
+        if (label) {
+            if (ds_last(ds) != '(') {
+                ds_put_char(ds, ',');
+            }
+            ds_put_format(ds, "label=");
+            ds_put_hex(ds, label, sizeof(*label));
+            ds_put_char(ds, '/');
+            ds_put_hex(ds, (label + 1), sizeof(*label));
         }
         if (helper) {
             if (ds_last(ds) != '(') {
@@ -5177,44 +5199,6 @@ commit_set_pkt_mark_action(const struct flow *flow, struct flow *base_flow,
     }
 }
 
-static void
-commit_set_ct_mark_action(const struct flow *flow, struct flow *base_flow,
-                            struct ofpbuf *odp_actions,
-                            struct flow_wildcards *wc,
-                            bool use_masked)
-{
-    uint32_t key, mask, base;
-
-    key = flow->ct_mark;
-    base = base_flow->ct_mark;
-    mask = wc->masks.ct_mark;
-
-    if (commit(OVS_KEY_ATTR_CT_MARK, use_masked, &key, &base, &mask,
-               sizeof key, odp_actions)) {
-        base_flow->ct_mark = base;
-        wc->masks.ct_mark = mask;
-    }
-}
-
-static void
-commit_set_ct_label_action(const struct flow *flow, struct flow *base_flow,
-                             struct ofpbuf *odp_actions,
-                             struct flow_wildcards *wc,
-                             bool use_masked)
-{
-    ovs_u128 key, mask, base;
-
-    key = flow->ct_label;
-    base = base_flow->ct_label;
-    mask = wc->masks.ct_label;
-
-    if (commit(OVS_KEY_ATTR_CT_LABEL, use_masked, &key, &base, &mask,
-               sizeof key, odp_actions)) {
-        base_flow->ct_label = base;
-        wc->masks.ct_label = mask;
-    }
-}
-
 /* If any of the flow key data that ODP actions can modify are different in
  * 'base' and 'flow', appends ODP actions to 'odp_actions' that change the flow
  * key from 'base' into 'flow', and then changes 'base' the same way.  Does not
@@ -5238,8 +5222,6 @@ commit_odp_actions(const struct flow *flow, struct flow *base,
     commit_vlan_action(flow->vlan_tci, base, odp_actions, wc);
     commit_set_priority_action(flow, base, odp_actions, wc, use_masked);
     commit_set_pkt_mark_action(flow, base, odp_actions, wc, use_masked);
-    commit_set_ct_mark_action(flow, base, odp_actions, wc, use_masked);
-    commit_set_ct_label_action(flow, base, odp_actions, wc, use_masked);
 
     return slow;
 }

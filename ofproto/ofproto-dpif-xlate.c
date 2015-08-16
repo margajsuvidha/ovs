@@ -2850,6 +2850,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                         const struct xlate_bond_recirc *xr, bool check_stp)
 {
     const struct xport *xport = get_ofp_port(ctx->xbridge, ofp_port);
+    struct ofpact_conntrack *deferred_ct = ctx_ct_action(ctx);
     struct flow_wildcards *wc = ctx->wc;
     struct flow *flow = &ctx->xin->flow;
     struct flow_tnl flow_tnl;
@@ -2900,12 +2901,18 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         }
     }
 
+    /* Deferred conntrack actions should be committed prior to output
+     * execution. */
+    if (deferred_ct) {
+        compose_conntrack_action__(ctx, deferred_ct);
+    }
+
     if (xport->peer) {
+        enum xlate_ct_state old_conntrack = ctx->xlate_ct;
         const struct xport *peer = xport->peer;
         struct flow old_flow = ctx->xin->flow;
         bool old_was_mpls = ctx->was_mpls;
         cls_version_t old_version = ctx->tables_version;
-        enum xlate_ct_state old_conntrack = ctx->xlate_ct;
         struct ofpbuf old_stack = ctx->stack;
         union mf_subvalue new_stack[1024 / sizeof(union mf_subvalue)];
         struct ofpbuf old_action_set = ctx->action_set;
@@ -4207,6 +4214,56 @@ put_connhelper(struct ofpbuf *odp_actions, struct ofpact_conntrack *ofc)
 }
 
 static void
+put_ct_mark(const struct flow *flow, struct flow *base_flow,
+            struct ofpbuf *odp_actions, struct flow_wildcards *wc)
+{
+    uint32_t base;
+    struct {
+        uint32_t key;
+        uint32_t mask;
+    } odp_attr;
+
+    base = base_flow->ct_mark;
+    odp_attr.key = flow->ct_mark;
+    odp_attr.mask = wc->masks.ct_mark;
+
+    if (odp_attr.mask && odp_attr.key != base) {
+        nl_msg_put_unspec(odp_actions, OVS_CT_ATTR_MARK, &odp_attr,
+                          sizeof(odp_attr));
+        base_flow->ct_mark = base;
+        wc->masks.ct_mark = odp_attr.mask;
+    }
+}
+
+static void
+put_ct_label(const struct flow *flow, struct flow *base_flow,
+             struct ofpbuf *odp_actions, struct flow_wildcards *wc)
+{
+    const ovs_u128 *key;
+    ovs_u128 *mask, *base;
+
+    key = &flow->ct_label;
+    base = &base_flow->ct_label;
+    mask = &wc->masks.ct_label;
+
+    if (!is_all_zeros(mask, sizeof(*mask)) && memcmp(key, base, sizeof(*key))) {
+        struct {
+            ovs_u128 key;
+            ovs_u128 mask;
+        } *odp_ct_label;
+
+        odp_ct_label = nl_msg_put_unspec_uninit(odp_actions, OVS_CT_ATTR_LABEL,
+                                                sizeof(*odp_ct_label));
+        odp_ct_label->key = *key;
+        odp_ct_label->mask = *mask;
+        base_flow->ct_label = *base;
+        wc->masks.ct_label = *mask;
+    }
+}
+
+/* XXX: Factor out this first part of this function into commit_ct_action() in
+ * odp-util. The put_connhelper() and friends can all live statically there. */
+static void
 compose_conntrack_action__(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
 {
     uint32_t flags = 0;
@@ -4219,6 +4276,8 @@ compose_conntrack_action__(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc)
     ct_offset = nl_msg_start_nested(ctx->odp_actions, OVS_ACTION_ATTR_CT);
     nl_msg_put_u32(ctx->odp_actions, OVS_CT_ATTR_FLAGS, flags);
     nl_msg_put_u16(ctx->odp_actions, OVS_CT_ATTR_ZONE, ofc->zone);
+    put_ct_mark(&ctx->xin->flow, &ctx->base_flow, ctx->odp_actions, ctx->wc);
+    put_ct_label(&ctx->xin->flow, &ctx->base_flow, ctx->odp_actions, ctx->wc);
     put_connhelper(ctx->odp_actions, ofc);
     nl_msg_end_nested(ctx->odp_actions, ct_offset);
 

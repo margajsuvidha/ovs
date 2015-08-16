@@ -676,6 +676,8 @@ enum ovs_ct_attr {
 	OVS_CT_ATTR_UNSPEC,
 	OVS_CT_ATTR_FLAGS,      /* u8 bitmask of OVS_CT_F_*. */
 	OVS_CT_ATTR_ZONE,       /* u16 zone id. */
+	OVS_CT_ATTR_MARK,       /* XXX */
+	OVS_CT_ATTR_LABEL,      /* XXX */
 	OVS_CT_ATTR_HELPER,
 	__OVS_CT_ATTR_MAX
 };
