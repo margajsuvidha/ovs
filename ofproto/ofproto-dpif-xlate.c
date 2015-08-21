@@ -4318,6 +4318,7 @@ static void
 do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
                  struct xlate_ctx *ctx)
 {
+    struct ofpact_conntrack *deferred_ct;
     struct flow_wildcards *wc = ctx->wc;
     struct flow *flow = &ctx->xin->flow;
     const struct ofpact *a;
@@ -4703,6 +4704,12 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
                                   ctx);
             break;
         }
+    }
+
+    /* Deferred conntrack actions should be committed before exiting. */
+    deferred_ct = ctx_ct_action(ctx);
+    if (deferred_ct) {
+        compose_conntrack_action__(ctx, deferred_ct);
     }
 }
 
