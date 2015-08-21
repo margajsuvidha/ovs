@@ -488,18 +488,7 @@ requires_datapath_assistance(const struct nlattr *a)
         return true;
 
     case OVS_ACTION_ATTR_SET:
-    case OVS_ACTION_ATTR_SET_MASKED: {
-        const struct nlattr *set = nl_attr_get(a);
-        enum ovs_key_attr set_type = nl_attr_type(set);
-
-        /* Conntrack set_field() actions need to be executed in datapath. */
-        if (set_type == OVS_KEY_ATTR_CT_MARK
-            || set_type == OVS_KEY_ATTR_CT_LABEL) {
-            return true;
-        }
-        return false;
-    }
-
+    case OVS_ACTION_ATTR_SET_MASKED:
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
     case OVS_ACTION_ATTR_SAMPLE:

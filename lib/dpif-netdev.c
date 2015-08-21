@@ -3586,15 +3586,7 @@ dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
         break;
 
     case OVS_ACTION_ATTR_SET:
-    case OVS_ACTION_ATTR_SET_MASKED: {
-        const struct nlattr *set = nl_attr_get(a);
-        enum ovs_key_attr set_type = nl_attr_type(set);
-
-        VLOG_WARN("Cannot execute set_field (type=%d) action in userspace.",
-                  set_type);
-        break;
-    }
-
+    case OVS_ACTION_ATTR_SET_MASKED:
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
     case OVS_ACTION_ATTR_PUSH_MPLS:
