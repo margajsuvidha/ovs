@@ -47,3 +47,9 @@ m4_define([OVS_TRAFFIC_VSWITCHD_STOP],
 m4_define([CHECK_CONNTRACK],
     [AT_SKIP_IF(true)]
 )
+
+# CONNTRACK_STATUS_CHECK([filter], [status])
+#
+# Perform no check, as we currently don't have a conntrack status dump
+# for the userspace connection tracker.
+m4_define([CONNTRACK_STATUS_CHECK])
