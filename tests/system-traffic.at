@@ -396,7 +396,7 @@ AT_SETUP([conntrack - multiple bridges])
 CHECK_CONNTRACK()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 standalone --\
-    add-br br1 --\
+    _ADD_BR(br1) --\
     add-port br0 patch+ -- set int patch+ type=patch options:peer=patch- --\
     add-port br1 patch- -- set int patch- type=patch options:peer=patch+ --])
 
@@ -620,11 +620,13 @@ dnl We pass "-q 1" here to handle openbsd-style nc that can't quit immediately.
 NS_CHECK_EXEC([at_ns0], [bash -c "echo a | nc -q 1 -u 10.1.1.2 10000"])
 
 AT_CHECK([ovs-appctl revalidator/purge], [0])
-AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop], [0], [dnl
- n_packets=1, n_bytes=44, udp,in_port=1 actions=ct(commit,zone=0),load:0x1->NXM_NX_CT_MARK[[]],output:2
- n_packets=1, n_bytes=72, ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
- n_packets=1, n_bytes=72, ct_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
- n_packets=2, n_bytes=84, priority=10,arp actions=NORMAL
+dnl Not checking n_bytes, because the userspace datapath may add padding to
+dnl some smaller packets.
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop | sed -e 's/n_bytes=[[0-9]]*/n_bytes=<cleared>/g'], [0], [dnl
+ n_packets=1, n_bytes=<cleared>, udp,in_port=1 actions=ct(commit,zone=0),load:0x1->NXM_NX_CT_MARK[[]],output:2
+ n_packets=1, n_bytes=<cleared>, ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
+ n_packets=1, n_bytes=<cleared>, ct_state=-trk,icmp,in_port=2 actions=ct(recirc,zone=0)
+ n_packets=2, n_bytes=<cleared>, priority=10,arp actions=NORMAL
 NXST_FLOW reply:
 ])
 
@@ -679,6 +681,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_ALG()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
 
@@ -762,6 +765,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP with multiple expectations])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_ALG()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 standalone -- ])
 
@@ -823,6 +827,7 @@ AT_CLEANUP
 
 AT_SETUP([fragmentation - ipv4 icmp ])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 secure -- ])
 
@@ -862,6 +867,7 @@ AT_CLEANUP
 
 AT_SETUP([fragmentation - ipv4 icmp + vlan])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 secure -- ])
 
@@ -903,6 +909,7 @@ AT_CLEANUP
 
 AT_SETUP([fragmentation - ipv6 icmp ])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 secure -- ])
 
@@ -947,6 +954,7 @@ AT_CLEANUP
 
 AT_SETUP([fragmentation - ipv6 icmp + vlan])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 secure -- ])
 
@@ -995,6 +1003,7 @@ AT_CLEANUP
 AT_SETUP([fragmentation over vxlan tunnel])
 AT_SKIP_IF([! ip link help 2>&1 | grep vxlan >/dev/null])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 standalone --])

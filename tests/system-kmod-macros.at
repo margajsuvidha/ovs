@@ -57,6 +57,19 @@ m4_define([CHECK_CONNTRACK],
     ]
 )
 
+# CHECK_CONNTRACK_ALG()
+#
+# Perform requirements checks for running conntrack ALG tests. The kernel
+# always supports ALG, so no check is needed.
+#
+m4_define([CHECK_CONNTRACK_ALG])
+
+# CHECK_CONNTRACK_FRAG()
+#
+# Perform requirements checks for running conntrack fragmentations tests.
+# The kernel always supports fragmentation, so no check is needed.
+m4_define([CHECK_CONNTRACK_FRAG])
+
 # FORMAT_CT()
 #
 # Strip content from the piped input which would differ from test to test.
