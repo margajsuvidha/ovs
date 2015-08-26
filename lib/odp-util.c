@@ -3833,16 +3833,16 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
 
     if (md->ct_state) {
         nl_msg_put_u8(buf, OVS_KEY_ATTR_CT_STATE, md->ct_state);
-    }
-    if (md->ct_zone) {
-        nl_msg_put_u16(buf, OVS_KEY_ATTR_CT_ZONE, md->ct_zone);
-    }
-    if (md->ct_mark) {
-        nl_msg_put_u32(buf, OVS_KEY_ATTR_CT_MARK, md->ct_mark);
-    }
-    if (!is_all_zeros(&md->ct_label, sizeof(md->ct_label))) {
-        nl_msg_put_unspec(buf, OVS_KEY_ATTR_CT_LABEL, &md->ct_label,
-                          sizeof(md->ct_label));
+        if (md->ct_zone) {
+            nl_msg_put_u16(buf, OVS_KEY_ATTR_CT_ZONE, md->ct_zone);
+        }
+        if (md->ct_mark) {
+            nl_msg_put_u32(buf, OVS_KEY_ATTR_CT_MARK, md->ct_mark);
+        }
+        if (!ovs_u128_is_zero(&md->ct_label)) {
+            nl_msg_put_unspec(buf, OVS_KEY_ATTR_CT_LABEL, &md->ct_label,
+                              sizeof(md->ct_label));
+        }
     }
 
     /* Add an ingress port attribute if 'odp_in_port' is not the magical

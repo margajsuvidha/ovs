@@ -503,15 +503,16 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
         miniflow_pad_to_64(mf, conj_id);
     }
 
-    if (md->ct_mark || md->ct_zone || md->ct_state) {
+    if (md->ct_state) {
         miniflow_push_uint32(mf, ct_mark, md->ct_mark);
         miniflow_push_uint16(mf, ct_zone, md->ct_zone);
         miniflow_push_uint8(mf, ct_state, md->ct_state);
         miniflow_pad_to_64(mf, pad1);
-    }
-    if (!ovs_u128_is_zero(&md->ct_label)) {
-        miniflow_push_words(mf, ct_label, &md->ct_label,
-                            sizeof md->ct_label / 8);
+
+        if (!ovs_u128_is_zero(&md->ct_label)) {
+            miniflow_push_words(mf, ct_label, &md->ct_label,
+                                sizeof md->ct_label / 8);
+        }
     }
 
     /* Initialize packet's layer pointer and offsets. */
