@@ -138,13 +138,18 @@ struct pkt_metadata {
 static inline void
 pkt_metadata_init(struct pkt_metadata *md, odp_port_t port)
 {
-    /* It can be expensive to zero out all of the tunnel metadata. However,
-     * we can just zero out ip_dst and the rest of the data will never be
-     * looked at. */
-    memset(md, 0, offsetof(struct pkt_metadata, tunnel));
-    md->tunnel.ip_dst = 0;
+    /* It can be expensive to zero out all metadata. Therefore:
+     *
+     * - We can just zero out 'tunnel.ip_dst' and the rest of the 'tunnel'
+     *   field will never be looked at.
+     * - We can just zero out 'ct_state' and the rest of the 'ct_*' members
+     *   will never be looked at. */
+    memset(md, 0, offsetof(struct pkt_metadata, in_port));
 
     md->in_port.odp_port = port;
+
+    md->ct_state = 0;
+    md->tunnel.ip_dst = 0;
 }
 
 bool dpid_from_string(const char *s, uint64_t *dpidp);
