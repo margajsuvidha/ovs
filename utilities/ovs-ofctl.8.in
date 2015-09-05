@@ -1613,6 +1613,15 @@ Commit the flow to the connection tracking module.
 A 16-bit context id that can be used to isolate connections into
 separate domains that allow overlapping network addresses.  If a zone is
 not provided, then the default is to use zone zero.
+.IP \fBalg=\fR\fIalg\fR
+Specify application layer gateway \fIalg\fR to track specific connection
+types. Supported types include:
+.RS
+.IP \fBftp\fR
+Look for negotiation of FTP data connections. If a subsequent FTP data
+connection arrives which is related, the \fBct\fR action will mark such
+packets with the \fIrel\fR ct_state flag.
+.RE
 .RE
 .IP
 Currently, connection tracking is only available on Linux kernels with the
