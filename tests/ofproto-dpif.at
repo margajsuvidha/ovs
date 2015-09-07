@@ -7021,7 +7021,7 @@ recirc_id(0),in_port(1),eth_type(0x1234), packets:5, bytes:300, used:0.0s, actio
 ])
 
 AT_CHECK([cat ovs-vswitchd.log | grep 'modify' | STRIP_UFID ], [0], [dnl
-dpif|DBG|dummy@ovs-dummy: put[[modify]] skb_priority(0/0),skb_mark(0/0),recirc_id(0),dp_hash(0/0),in_port(1),eth(src=50:54:00:00:00:09/00:00:00:00:00:00,dst=50:54:00:00:00:0a/00:00:00:00:00:00),eth_type(0x1234), actions:push_vlan(vid=4,pcp=0),100
+dpif|DBG|dummy@ovs-dummy: put[[modify]] skb_priority(0/0),skb_mark(0/0),ct_state(0/0),ct_zone(0),ct_mark(0/0),ct_label(0/0),recirc_id(0),dp_hash(0/0),in_port(1),eth(src=50:54:00:00:00:09/00:00:00:00:00:00,dst=50:54:00:00:00:0a/00:00:00:00:00:00),eth_type(0x1234), actions:push_vlan(vid=4,pcp=0),100
 ])
 OVS_VSWITCHD_STOP
 AT_CLEANUP
