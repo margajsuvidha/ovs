@@ -52,6 +52,7 @@ VLOG_DEFINE_THIS_MODULE(odp_util);
 /* The set of characters that may separate one action or one key attribute
  * from another. */
 static const char *delimiters = ", \t\r\n";
+static const char *delimiters_end = ", \t\r\n)";
 
 struct attr_len_tbl {
     int len;
@@ -1069,7 +1070,7 @@ parse_conntrack_action(const char *s_, struct ofpbuf *actions)
                 }
                 if (ovs_scan(s, "helper=%n", &n)) {
                     s += n;
-                    helper_len = strcspn(s, delimiters);
+                    helper_len = strcspn(s, delimiters_end);
                     if (helper_len > 15) {
                         return -EINVAL;
                     }
