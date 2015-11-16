@@ -579,7 +579,8 @@ NS_CHECK_EXEC([at_ns0], [wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0
 dnl (again) HTTP requests from p0->p1 should work fine.
 NS_CHECK_EXEC([at_ns0], [wget 10.1.1.2 -t 3 -T 1 --retry-connrefused -v -o wget0.log])
 
-AT_CHECK([ovs-appctl dpctl/dump-conntrack | FORMAT_CT(10.1.1.2)], [0], [dnl
+dnl The userspace connection tracker here has a different internal TCP state (CLOSING). Ignore that.
+AT_CHECK([ovs-appctl dpctl/dump-conntrack | FORMAT_CT(10.1.1.2) | grep -v "state=CLOSING"], [0], [dnl
 tcp,orig=(src=10.1.1.1,dst=10.1.1.2,sport=<cleared>,dport=<cleared>),reply=(src=10.1.1.2,dst=10.1.1.1,sport=<cleared>,dport=<cleared>),zone=1,protoinfo=(state=SYN_SENT)
 tcp,orig=(src=10.1.1.1,dst=10.1.1.2,sport=<cleared>,dport=<cleared>),reply=(src=10.1.1.2,dst=10.1.1.1,sport=<cleared>,dport=<cleared>),zone=2,protoinfo=(state=TIME_WAIT)
 ])
@@ -589,6 +590,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - multiple zones, local])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_LOCAL_STACK()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0)
@@ -636,6 +638,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - multiple namespaces, internal ports])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_LOCAL_STACK()
 OVS_TRAFFIC_VSWITCHD_START(
    [set-fail-mode br0 secure -- ])
 
@@ -676,6 +679,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - multi-stage pipeline, local])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_LOCAL_STACK()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0)
@@ -969,11 +973,11 @@ dnl UDP packets from ns0->ns1 should solicit "destination unreachable" response.
 NS_CHECK_EXEC([at_ns0], [bash -c "echo a | nc $NC_EOF_OPT -u 10.1.1.2 10000"])
 
 AT_CHECK([ovs-appctl revalidator/purge], [0])
-AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop], [0], [dnl
- n_packets=1, n_bytes=44, priority=100,udp,in_port=1 actions=ct(commit,exec(load:0x1->NXM_NX_CT_MARK[[]])),output:2
- n_packets=1, n_bytes=72, priority=100,ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
- n_packets=1, n_bytes=72, priority=100,ct_state=-trk,icmp,in_port=2 actions=ct(table=0)
- n_packets=2, n_bytes=84, priority=10,arp actions=NORMAL
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | grep -v drop | sed -e 's/n_bytes=[[0-9]]*/n_bytes=<cleared>/g'], [0], [dnl
+ n_packets=1, n_bytes=<cleared>, priority=100,udp,in_port=1 actions=ct(commit,exec(load:0x1->NXM_NX_CT_MARK[[]])),output:2
+ n_packets=1, n_bytes=<cleared>, priority=100,ct_state=+rel+trk,ct_mark=0x1,icmp,in_port=2 actions=output:1
+ n_packets=1, n_bytes=<cleared>, priority=100,ct_state=-trk,icmp,in_port=2 actions=ct(table=0)
+ n_packets=2, n_bytes=<cleared>, priority=10,arp actions=NORMAL
 NXST_FLOW reply:
 ])
 
@@ -1027,6 +1031,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_ALG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1109,6 +1114,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - IPv6 FTP])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_ALG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1159,6 +1165,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP with multiple expectations])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_ALG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1219,6 +1226,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv4 fragmentation ])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1257,6 +1265,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv4 fragmentation expiry])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1292,6 +1301,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv4 fragmentation + vlan])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1332,6 +1342,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv6 fragmentation])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1375,6 +1386,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv6 fragmentation expiry])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1419,6 +1431,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv6 fragmentation + vlan])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1466,6 +1479,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - Fragmentation over vxlan])
 OVS_CHECK_VXLAN()
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 
 OVS_TRAFFIC_VSWITCHD_START()
 ADD_BR([br-underlay])
@@ -1517,6 +1531,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - IPv6 Fragmentation over vxlan])
 AT_SKIP_IF([! ip link help 2>&1 | grep vxlan >/dev/null])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_FRAG()
 
 OVS_TRAFFIC_VSWITCHD_START()
 ADD_BR([br-underlay])
@@ -1599,12 +1614,12 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 1 10.1.1.2 | FORMAT_PING], [0], [dnl
 1 packets transmitted, 0 received, 100% packet loss, time 0ms
 ])
 
-AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort], [0], [dnl
- n_packets=1, n_bytes=98, priority=100,ip,in_port=1 actions=resubmit(,1),resubmit(,2)
- n_packets=2, n_bytes=84, priority=150,arp actions=NORMAL
- table=1, n_packets=1, n_bytes=98, priority=100,ip actions=ct(table=3)
- table=2, n_packets=1, n_bytes=98, priority=100,ip actions=ct(table=3)
- table=3, n_packets=2, n_bytes=196, ip actions=drop
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort | sed -e 's/n_bytes=[[0-9]]*/n_bytes=<cleared>/g'], [0], [dnl
+ n_packets=1, n_bytes=<cleared>, priority=100,ip,in_port=1 actions=resubmit(,1),resubmit(,2)
+ n_packets=2, n_bytes=<cleared>, priority=150,arp actions=NORMAL
+ table=1, n_packets=1, n_bytes=<cleared>, priority=100,ip actions=ct(table=3)
+ table=2, n_packets=1, n_bytes=<cleared>, priority=100,ip actions=ct(table=3)
+ table=3, n_packets=2, n_bytes=<cleared>, ip actions=drop
 NXST_FLOW reply:
 ])
 
@@ -1614,6 +1629,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - simple SNAT])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1660,6 +1676,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - SNAT with port range])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1707,6 +1724,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - more complex SNAT])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1758,6 +1776,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - simple DNAT])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1812,6 +1831,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - more complex DNAT])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1872,6 +1892,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - ICMP related with NAT])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -1933,6 +1954,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP with NAT])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 
 OVS_TRAFFIC_VSWITCHD_START()
 
@@ -2013,6 +2035,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - FTP with NAT 2])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -2079,6 +2102,7 @@ AT_CLEANUP
 
 AT_SETUP([conntrack - IPv6 HTTP with NAT])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
@@ -2121,6 +2145,7 @@ AT_CLEANUP
 AT_SETUP([conntrack - IPv6 FTP with NAT])
 AT_SKIP_IF([test $HAVE_PYFTPDLIB = no])
 CHECK_CONNTRACK()
+CHECK_CONNTRACK_NAT()
 OVS_TRAFFIC_VSWITCHD_START()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
