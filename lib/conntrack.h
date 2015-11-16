@@ -68,6 +68,8 @@ int conntrack_execute(struct conntrack *, struct dp_packet **, size_t,
                       bool commit, uint16_t zone, const uint32_t *setmark,
                       const struct ovs_key_ct_labels *setlabel,
                       const char *helper);
+
+int conntrack_flush(struct conntrack *, const uint16_t *zone);
 
 /* struct ct_lock is a standard mutex or a spinlock when using DPDK */
 
