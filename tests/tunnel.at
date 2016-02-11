@@ -16,7 +16,7 @@ OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: remote_ip=1.1.1.1)
 		p2 2/1: (gre: local_ip=2.2.2.2, remote_ip=1.1.1.1)
 		p3 3/1: (gre: remote_ip=2.2.2.2)
@@ -39,7 +39,7 @@ AT_CHECK([ovs-vsctl set Interface p2 type=gre options:local_ip=2.2.2.3 \
           options:df_default=false options:ttl=1 options:csum=true \
           -- set Interface p3 type=vxlan])
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: remote_ip=1.1.1.1)
 		p2 2/1: (gre: csum=true, df_default=false, local_ip=2.2.2.3, remote_ip=1.1.1.1, ttl=1)
 		p3 3/4789: (vxlan: remote_ip=2.2.2.2)
@@ -74,7 +74,7 @@ actions=2
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: remote_ip=1.1.1.1)
 		p2 2/2: (dummy)
 ])
@@ -123,7 +123,7 @@ OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: key=5, local_ip=2.2.2.2, remote_ip=1.1.1.1)
 		p2 2/2: (dummy)
 ])
@@ -156,7 +156,7 @@ OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: remote_ip=1.1.1.1, tos=inherit, ttl=inherit)
 		p2 2/2: (dummy)
 ])
@@ -199,7 +199,7 @@ OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: key=flow, remote_ip=1.1.1.1)
 		p2 2/1: (gre: key=flow, remote_ip=2.2.2.2)
 		p3 3/1: (gre: key=flow, remote_ip=3.3.3.3)
@@ -232,7 +232,7 @@ OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: key=1, remote_ip=1.1.1.1)
 		p2 2/1: (gre: in_key=2, out_key=3, remote_ip=1.1.1.1)
 		p3 3/1: (gre: out_key=5, remote_ip=1.1.1.1)
@@ -285,7 +285,7 @@ OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/1: (gre: key=flow, remote_ip=1.1.1.1)
 		p2 2/1: (gre: key=3, remote_ip=3.3.3.3)
 		p3 3/3: (dummy)
@@ -321,7 +321,7 @@ OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=geneve \
                     options:remote_ip=1.1.1.1 ofport_request=1 options:dst_port=5000])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/5000: (geneve: dst_port=5000, remote_ip=1.1.1.1)
 ])
 
@@ -333,7 +333,7 @@ OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=vxlan \
                     options:remote_ip=1.1.1.1 ofport_request=1])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/4789: (vxlan: remote_ip=1.1.1.1)
 ])
 
@@ -345,7 +345,7 @@ OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=lisp \
                     options:remote_ip=1.1.1.1 ofport_request=1])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/4341: (lisp: remote_ip=1.1.1.1)
 ])
 
@@ -357,7 +357,7 @@ OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=vxlan \
                     options:remote_ip=1.1.1.1 ofport_request=1 options:dst_port=4341])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/4341: (vxlan: dst_port=4341, remote_ip=1.1.1.1)
 ])
 
@@ -366,7 +366,7 @@ dnl change UDP port
 AT_CHECK([ovs-vsctl -- set Interface p1 options:dst_port=5000])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/5000: (vxlan: dst_port=5000, remote_ip=1.1.1.1)
 ])
 
@@ -375,7 +375,7 @@ dnl change UDP port to default
 AT_CHECK([ovs-vsctl -- set Interface p1 options:dst_port=4789])
 
 AT_CHECK([ovs-appctl dpif/show | tail -n +3], [0], [dnl
-		br0 65534/100: (dummy)
+		br0 65534/100: (dummy-internal)
 		p1 1/4789: (vxlan: remote_ip=1.1.1.1)
 ])
 OVS_VSWITCHD_STOP
