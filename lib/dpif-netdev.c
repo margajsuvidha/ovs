@@ -184,6 +184,7 @@ static bool dpcls_lookup(const struct dpcls *cls,
  * Acquisition order is, from outermost to innermost:
  *
  *    dp_netdev_mutex (global)
+ *    non_pmd_mutex
  *    port_mutex
  */
 struct dp_netdev {
