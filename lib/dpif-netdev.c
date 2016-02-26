@@ -469,8 +469,9 @@ static void dp_netdev_free(struct dp_netdev *)
 static int do_add_port(struct dp_netdev *dp, const char *devname,
                        const char *type, odp_port_t port_no)
     OVS_REQUIRES(dp->port_mutex);
-static void do_del_port(struct dp_netdev *dp, struct dp_netdev_port *)
+static void do_remove_port(struct dp_netdev *dp, struct dp_netdev_port *)
     OVS_REQUIRES(dp->port_mutex);
+static void do_destroy_port(struct dp_netdev_port *);
 static int dpif_netdev_open(const struct dpif_class *, const char *name,
                             bool create, struct dpif **);
 static void dp_netdev_execute_actions(struct dp_netdev_pmd_thread *pmd,
@@ -495,6 +496,7 @@ static struct dp_netdev_pmd_thread *dp_netdev_get_pmd(struct dp_netdev *dp,
 static struct dp_netdev_pmd_thread *
 dp_netdev_pmd_get_next(struct dp_netdev *dp, struct cmap_position *pos);
 static void dp_netdev_destroy_all_pmds(struct dp_netdev *dp);
+static bool has_pmd_port_for_numa(struct dp_netdev *dp, int numa_id);
 static void dp_netdev_del_pmds_on_numa(struct dp_netdev *dp, int numa_id);
 static void dp_netdev_set_pmds_on_numa(struct dp_netdev *dp, int numa_id);
 static void dp_netdev_pmd_clear_poll_list(struct dp_netdev_pmd_thread *pmd);
@@ -969,7 +971,8 @@ static void
 dp_netdev_free(struct dp_netdev *dp)
     OVS_REQUIRES(dp_netdev_mutex)
 {
-    struct dp_netdev_port *port;
+    struct dp_netdev_port *port, **port_list;
+    size_t n_ports, k;
 
     shash_find_and_delete(&dp_netdevs, dp->name);
 
@@ -978,11 +981,25 @@ dp_netdev_free(struct dp_netdev *dp)
     ovsthread_key_delete(dp->per_pmd_key);
 
     ovs_mutex_lock(&dp->port_mutex);
+    n_ports = cmap_count(&dp->ports);
+    port_list = xcalloc(n_ports, sizeof *port_list);
+
+    k = 0;
     CMAP_FOR_EACH (port, node, &dp->ports) {
-        /* PMD threads are destroyed here. do_del_port() cannot quiesce */
-        do_del_port(dp, port);
+        do_remove_port(dp, port);
+        ovs_assert(k < n_ports);
+        port_list[k++] = port;
     }
     ovs_mutex_unlock(&dp->port_mutex);
+
+    ovsrcu_synchronize();
+
+    for (size_t i = 0; i < k; i++) {
+        do_destroy_port(port_list[i]);
+    }
+
+    free(port_list);
+
     cmap_destroy(&dp->poll_threads);
 
     seq_destroy(dp->port_seq);
@@ -1226,22 +1243,49 @@ static int
 dpif_netdev_port_del(struct dpif *dpif, odp_port_t port_no)
 {
     struct dp_netdev *dp = get_dp_netdev(dpif);
+    struct dp_netdev_port *port = NULL;
     int error;
 
     ovs_mutex_lock(&dp->port_mutex);
     if (port_no == ODPP_LOCAL) {
         error = EINVAL;
     } else {
-        struct dp_netdev_port *port;
 
         error = get_port_by_number(dp, port_no, &port);
         if (!error) {
-            do_del_port(dp, port);
+            do_remove_port(dp, port);
         }
     }
     ovs_mutex_unlock(&dp->port_mutex);
 
-    return error;
+    if (!port) {
+        return error;
+    }
+
+    if (netdev_is_pmd(port->netdev)) {
+        int numa_id = netdev_get_numa_id(port->netdev);
+
+        /* PMD threads can not be on invalid numa node. */
+        ovs_assert(ovs_numa_numa_id_is_valid(numa_id));
+        /* If there is no netdev on the numa node, deletes the pmd threads
+         * for that numa.  Else, deletes the queues from polling lists. */
+        if (!has_pmd_port_for_numa(dp, numa_id)) {
+            dp_netdev_del_pmds_on_numa(dp, numa_id);
+        } else {
+            dp_netdev_del_port_from_all_pmds(dp, port);
+        }
+    }
+
+    /* 'port' is RCU protected, we need to wait before freeing it.
+     * Postponing is not acceptable because the above layer assumes that
+     * we have dropped every reference to the netdev before returning, so
+     * that, for example, when a vsctl command returns the netdev will
+     * effectively be removed and ready to be eventually readded. */
+    ovsrcu_synchronize();
+
+    do_destroy_port(port);
+
+    return 0;
 }
 
 static bool
@@ -1274,25 +1318,6 @@ get_port_by_number(struct dp_netdev *dp,
         *portp = dp_netdev_lookup_port(dp, port_no);
         return *portp ? 0 : ENOENT;
     }
-}
-
-static void
-port_destroy(struct dp_netdev_port *port)
-{
-    if (!port) {
-        return;
-    }
-
-    netdev_close(port->netdev);
-    netdev_restore_flags(port->sf);
-
-    for (unsigned i = 0; i < port->n_rxq; i++) {
-        netdev_rxq_close(port->rxq[i]);
-    }
-
-    free(port->rxq);
-    free(port->type);
-    free(port);
 }
 
 static int
@@ -1350,28 +1375,43 @@ has_pmd_port_for_numa(struct dp_netdev *dp, int numa_id)
     return false;
 }
 
-
+/* Port removal is a multi step process:
+ * 1. If the device is a pmd netdev, its queues must be removed from the pmd
+ *    threads.
+ * 2. The port must be removed from the 'dp->ports' cmap with do_remove_port().
+ * 3. The port memory must be released and the netdev reference must be dropped
+ *    with do_destroy_port().
+ *
+ * Order between step 1 and 2 is not important.
+ *
+ * Step 2 and 3 must be split by an RCU grace period: this can be accomplished
+ * via postponing step 3 or, if the thread really needs to wait for the netdev
+ * references to be dropped, via an ovsrcu_synchronize() call */
 static void
-do_del_port(struct dp_netdev *dp, struct dp_netdev_port *port)
+do_remove_port(struct dp_netdev *dp, struct dp_netdev_port *port)
     OVS_REQUIRES(dp->port_mutex)
 {
     cmap_remove(&dp->ports, &port->node, hash_odp_port(port->port_no));
     seq_change(dp->port_seq);
-    if (netdev_is_pmd(port->netdev)) {
-        int numa_id = netdev_get_numa_id(port->netdev);
+}
 
-        /* PMD threads can not be on invalid numa node. */
-        ovs_assert(ovs_numa_numa_id_is_valid(numa_id));
-        /* If there is no netdev on the numa node, deletes the pmd threads
-         * for that numa.  Else, deletes the queues from polling lists. */
-        if (!has_pmd_port_for_numa(dp, numa_id)) {
-            dp_netdev_del_pmds_on_numa(dp, numa_id);
-        } else {
-            dp_netdev_del_port_from_all_pmds(dp, port);
-        }
+static void
+do_destroy_port(struct dp_netdev_port *port)
+{
+    if (!port) {
+        return;
     }
 
-    port_destroy(port);
+    netdev_close(port->netdev);
+    netdev_restore_flags(port->sf);
+
+    for (unsigned i = 0; i < port->n_rxq; i++) {
+        netdev_rxq_close(port->rxq[i]);
+    }
+
+    free(port->rxq);
+    free(port->type);
+    free(port);
 }
 
 static void
