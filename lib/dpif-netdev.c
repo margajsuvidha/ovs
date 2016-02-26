@@ -2591,6 +2591,11 @@ static void
 reconfigure_pmd_threads(struct dp_netdev *dp)
 {
     struct dp_netdev_port *port;
+    struct hmapx to_reconfigure = HMAPX_INITIALIZER(&to_reconfigure);
+    struct hmapx_node *node;
+    bool failed_config = false;
+
+    ovs_mutex_lock(&dp->port_mutex);
 
     dp_netdev_destroy_all_pmds(dp);
 
@@ -2599,33 +2604,64 @@ reconfigure_pmd_threads(struct dp_netdev *dp)
         int requested_n_rxq = netdev_requested_n_rxq(netdev);
         if (netdev_is_pmd(port->netdev)
             && port->latest_requested_n_rxq != requested_n_rxq) {
-            int i, err;
-
-            /* Closes the existing 'rxq's. */
-            for (i = 0; i < port->n_rxq; i++) {
-                netdev_rxq_close(port->rxq[i]);
-                port->rxq[i] = NULL;
-            }
-            port->n_rxq = 0;
-
-            /* Sets the new rx queue config. */
-            err = netdev_set_multiq(port->netdev, ovs_numa_get_n_cores() + 1,
-                                    requested_n_rxq);
-            if (err && (err != EOPNOTSUPP)) {
-                VLOG_ERR("Failed to set dpdk interface %s rx_queue to: %u",
-                         netdev_get_name(port->netdev),
-                         requested_n_rxq);
-                return;
-            }
-            port->latest_requested_n_rxq = requested_n_rxq;
-            /* If the set_multiq() above succeeds, reopens the 'rxq's. */
-            port->n_rxq = netdev_n_rxq(port->netdev);
-            port->rxq = xrealloc(port->rxq, sizeof *port->rxq * port->n_rxq);
-            for (i = 0; i < port->n_rxq; i++) {
-                netdev_rxq_open(port->netdev, &port->rxq[i], i);
-            }
+            cmap_remove(&dp->ports, &port->node, hash_odp_port(port->port_no));
+            hmapx_add(&to_reconfigure, port);
         }
     }
+    ovs_mutex_unlock(&dp->port_mutex);
+
+    /* Waits for the other threads to see the ports removed from the cmap,
+     * otherwise we are not allowed to alter them. */
+    ovsrcu_synchronize();
+
+    ovs_mutex_lock(&dp->port_mutex);
+    HMAPX_FOR_EACH (node, &to_reconfigure) {
+        int requested_n_rxq, i, err;
+
+        port = node->data;
+        requested_n_rxq = netdev_requested_n_rxq(port->netdev);
+        /* Closes the existing 'rxq's. */
+        for (i = 0; i < port->n_rxq; i++) {
+            netdev_rxq_close(port->rxq[i]);
+            port->rxq[i] = NULL;
+        }
+        port->n_rxq = 0;
+
+        /* Sets the new rx queue config. */
+        err = netdev_set_multiq(port->netdev, ovs_numa_get_n_cores() + 1,
+                                requested_n_rxq);
+        if (err && (err != EOPNOTSUPP)) {
+            VLOG_ERR("Failed to set dpdk interface %s rx_queue to: %u",
+                     netdev_get_name(port->netdev),
+                     requested_n_rxq);
+            do_destroy_port(port);
+            failed_config = true;
+            continue;
+        }
+        port->latest_requested_n_rxq = requested_n_rxq;
+        /* If the netdev_set_multiq() above succeeds, reopens the 'rxq's and
+         * inserts the port back in the cmap, to allow transmitting packets. */
+        port->rxq = xrealloc(port->rxq, sizeof *port->rxq
+                                        * netdev_n_rxq(port->netdev));
+        for (i = 0; i < netdev_n_rxq(port->netdev); i++) {
+            err = netdev_rxq_open(port->netdev, &port->rxq[i], i);
+            if (err) {
+                do_destroy_port(port);
+                failed_config = true;
+                continue;
+            }
+            port->n_rxq++;
+        }
+        cmap_insert(&dp->ports, &port->node, hash_port_no(port->port_no));
+    }
+    ovs_mutex_unlock(&dp->port_mutex);
+
+    hmapx_destroy(&to_reconfigure);
+
+    if (failed_config) {
+        seq_change(dp->port_seq);
+    }
+
     /* Reconfigures the cpu mask. */
     ovs_numa_set_cpu_mask(dp->requested_pmd_cmask);
     free(dp->pmd_cmask);
