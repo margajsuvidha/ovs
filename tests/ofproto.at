@@ -4987,3 +4987,33 @@ NXST_FLOW reply:
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP
+
+AT_SETUP([ofproto - set mtu])
+OVS_VSWITCHD_START
+
+add_of_ports br0 1
+
+dnl Check that initial MTU is 1500 for 'br0' and 'p1'.
+AT_CHECK([ovs-vsctl get Interface br0 mtu], [0], [dnl
+1500
+])
+AT_CHECK([ovs-vsctl get Interface p1 mtu], [0], [dnl
+1500
+])
+
+dnl Request new MTU for 'p1'
+AT_CHECK([ovs-vsctl set Interface p1 mtu_request=1600])
+
+dnl Check that the new MTU is applied
+OVS_WAIT_UNTIL([test `ovs-vsctl get Interface p1 mtu` = 1600])
+dnl The internal port 'br0' should have the same MTU value as p1, becase it's
+dnl the new bridge minimum.
+OVS_WAIT_UNTIL([test `ovs-vsctl get Interface br0 mtu` = 1600])
+
+AT_CHECK([ovs-vsctl del-port br0 p1])
+
+dnl When 'p1' is deleted, the internal port should return to the default MTU
+OVS_WAIT_UNTIL([test `ovs-vsctl get Interface br0 mtu` = 1500])
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP
