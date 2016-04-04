@@ -198,7 +198,7 @@ struct dp_netdev {
      *
      * Protected by RCU.  Take the mutex to add or remove ports. */
     struct ovs_mutex port_mutex;
-    struct cmap ports;
+    struct hmap ports;
     struct seq *port_seq;       /* Incremented whenever a port changes. */
 
     /* Protects access to ofproto-dpif-upcall interface during revalidator
@@ -229,7 +229,8 @@ struct dp_netdev {
 };
 
 static struct dp_netdev_port *dp_netdev_lookup_port(const struct dp_netdev *dp,
-                                                    odp_port_t);
+                                                    odp_port_t)
+    OVS_REQUIRES(&dp->port_mutex);
 
 enum dp_stat_type {
     DP_STAT_EXACT_HIT,          /* Packets that had an exact match (emc). */
@@ -249,7 +250,7 @@ enum pmd_cycles_counter_type {
 struct dp_netdev_port {
     odp_port_t port_no;
     struct netdev *netdev;
-    struct cmap_node node;      /* Node in dp_netdev's 'ports'. */
+    struct hmap_node node;      /* Node in dp_netdev's 'ports'. */
     struct netdev_saved_flags *sf;
     unsigned n_rxq;             /* Number of elements in 'rxq' */
     struct netdev_rxq **rxq;
@@ -475,9 +476,11 @@ struct dpif_netdev {
 };
 
 static int get_port_by_number(struct dp_netdev *dp, odp_port_t port_no,
-                              struct dp_netdev_port **portp);
+                              struct dp_netdev_port **portp)
+    OVS_REQUIRES(dp->port_mutex);
 static int get_port_by_name(struct dp_netdev *dp, const char *devname,
-                            struct dp_netdev_port **portp);
+                            struct dp_netdev_port **portp)
+    OVS_REQUIRES(dp->port_mutex);
 static void dp_netdev_free(struct dp_netdev *)
     OVS_REQUIRES(dp_netdev_mutex);
 static int do_add_port(struct dp_netdev *dp, const char *devname,
@@ -521,7 +524,8 @@ dp_netdev_add_rxq_to_pmd(struct dp_netdev_pmd_thread *pmd,
                          struct dp_netdev_port *port, struct netdev_rxq *rx);
 static struct dp_netdev_pmd_thread *
 dp_netdev_less_loaded_pmd_on_numa(struct dp_netdev *dp, int numa_id);
-static void dp_netdev_reset_pmd_threads(struct dp_netdev *dp);
+static void dp_netdev_reset_pmd_threads(struct dp_netdev *dp)
+    OVS_REQUIRES(dp->port_mutex);
 static bool dp_netdev_pmd_try_ref(struct dp_netdev_pmd_thread *pmd);
 static void dp_netdev_pmd_unref(struct dp_netdev_pmd_thread *pmd);
 static void dp_netdev_pmd_flow_flush(struct dp_netdev_pmd_thread *pmd);
@@ -912,7 +916,7 @@ create_dp_netdev(const char *name, const struct dpif_class *class,
     atomic_flag_clear(&dp->destroyed);
 
     ovs_mutex_init(&dp->port_mutex);
-    cmap_init(&dp->ports);
+    hmap_init(&dp->ports);
     dp->port_seq = seq_create();
     fat_rwlock_init(&dp->upcall_rwlock);
 
@@ -983,7 +987,7 @@ static void
 dp_netdev_free(struct dp_netdev *dp)
     OVS_REQUIRES(dp_netdev_mutex)
 {
-    struct dp_netdev_port *port;
+    struct dp_netdev_port *port, *next;
 
     shash_find_and_delete(&dp_netdevs, dp->name);
 
@@ -992,15 +996,14 @@ dp_netdev_free(struct dp_netdev *dp)
     ovsthread_key_delete(dp->per_pmd_key);
 
     ovs_mutex_lock(&dp->port_mutex);
-    CMAP_FOR_EACH (port, node, &dp->ports) {
-        /* PMD threads are destroyed here. do_del_port() cannot quiesce */
+    HMAP_FOR_EACH_SAFE (port, next, node, &dp->ports) {
         do_del_port(dp, port);
     }
     ovs_mutex_unlock(&dp->port_mutex);
     cmap_destroy(&dp->poll_threads);
 
     seq_destroy(dp->port_seq);
-    cmap_destroy(&dp->ports);
+    hmap_destroy(&dp->ports);
     ovs_mutex_destroy(&dp->port_mutex);
 
     /* Upcalls must be disabled at this point */
@@ -1221,7 +1224,7 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
         return error;
     }
 
-    cmap_insert(&dp->ports, &port->node, hash_port_no(port_no));
+    hmap_insert(&dp->ports, &port->node, hash_port_no(port_no));
 
     dp_netdev_add_port_to_pmds(dp, port);
     seq_change(dp->port_seq);
@@ -1287,10 +1290,11 @@ is_valid_port_number(odp_port_t port_no)
 
 static struct dp_netdev_port *
 dp_netdev_lookup_port(const struct dp_netdev *dp, odp_port_t port_no)
+    OVS_REQUIRES(&dp->port_mutex)
 {
     struct dp_netdev_port *port;
 
-    CMAP_FOR_EACH_WITH_HASH (port, node, hash_port_no(port_no), &dp->ports) {
+    HMAP_FOR_EACH_WITH_HASH (port, node, hash_port_no(port_no), &dp->ports) {
         if (port->port_no == port_no) {
             return port;
         }
@@ -1301,6 +1305,7 @@ dp_netdev_lookup_port(const struct dp_netdev *dp, odp_port_t port_no)
 static int
 get_port_by_number(struct dp_netdev *dp,
                    odp_port_t port_no, struct dp_netdev_port **portp)
+    OVS_REQUIRES(&dp->port_mutex)
 {
     if (!is_valid_port_number(port_no)) {
         *portp = NULL;
@@ -1337,7 +1342,7 @@ get_port_by_name(struct dp_netdev *dp,
 {
     struct dp_netdev_port *port;
 
-    CMAP_FOR_EACH (port, node, &dp->ports) {
+    HMAP_FOR_EACH (port, node, &dp->ports) {
         if (!strcmp(netdev_get_name(port->netdev), devname)) {
             *portp = port;
             return 0;
@@ -1372,10 +1377,11 @@ get_n_pmd_threads_on_numa(struct dp_netdev *dp, int numa_id)
  * is on numa node 'numa_id'. */
 static bool
 has_pmd_port_for_numa(struct dp_netdev *dp, int numa_id)
+    OVS_REQUIRES(dp->port_mutex)
 {
     struct dp_netdev_port *port;
 
-    CMAP_FOR_EACH (port, node, &dp->ports) {
+    HMAP_FOR_EACH (port, node, &dp->ports) {
         if (netdev_is_pmd(port->netdev)
             && netdev_get_numa_id(port->netdev) == numa_id) {
             return true;
@@ -1390,7 +1396,7 @@ static void
 do_del_port(struct dp_netdev *dp, struct dp_netdev_port *port)
     OVS_REQUIRES(dp->port_mutex)
 {
-    cmap_remove(&dp->ports, &port->node, hash_odp_port(port->port_no));
+    hmap_remove(&dp->ports, &port->node);
     seq_change(dp->port_seq);
 
     dp_netdev_del_port_from_all_pmds(dp, port);
@@ -1427,10 +1433,12 @@ dpif_netdev_port_query_by_number(const struct dpif *dpif, odp_port_t port_no,
     struct dp_netdev_port *port;
     int error;
 
+    ovs_mutex_lock(&dp->port_mutex);
     error = get_port_by_number(dp, port_no, &port);
     if (!error && dpif_port) {
         answer_port_query(port, dpif_port);
     }
+    ovs_mutex_unlock(&dp->port_mutex);
 
     return error;
 }
@@ -1515,7 +1523,7 @@ dpif_netdev_flow_flush(struct dpif *dpif)
 }
 
 struct dp_netdev_port_state {
-    struct cmap_position position;
+    struct hmap_position position;
     char *name;
 };
 
@@ -1532,10 +1540,11 @@ dpif_netdev_port_dump_next(const struct dpif *dpif, void *state_,
 {
     struct dp_netdev_port_state *state = state_;
     struct dp_netdev *dp = get_dp_netdev(dpif);
-    struct cmap_node *node;
+    struct hmap_node *node;
     int retval;
 
-    node = cmap_next_position(&dp->ports, &state->position);
+    ovs_mutex_lock(&dp->port_mutex);
+    node = hmap_at_position(&dp->ports, &state->position);
     if (node) {
         struct dp_netdev_port *port;
 
@@ -1551,6 +1560,7 @@ dpif_netdev_port_dump_next(const struct dpif *dpif, void *state_,
     } else {
         retval = EOF;
     }
+    ovs_mutex_unlock(&dp->port_mutex);
 
     return retval;
 }
@@ -2406,8 +2416,8 @@ dpif_netdev_execute(struct dpif *dpif, struct dpif_execute *execute)
     dp_netdev_execute_actions(pmd, &pp, 1, false, execute->actions,
                               execute->actions_len);
     if (pmd->core_id == NON_PMD_CORE_ID) {
-        dp_netdev_pmd_unref(pmd);
         ovs_mutex_unlock(&dp->non_pmd_mutex);
+        dp_netdev_pmd_unref(pmd);
     }
 
     return 0;
@@ -2448,14 +2458,17 @@ pmd_config_changed(const struct dp_netdev *dp, const char *cmask)
 {
     struct dp_netdev_port *port;
 
-    CMAP_FOR_EACH (port, node, &dp->ports) {
+    ovs_mutex_lock(&dp->port_mutex);
+    HMAP_FOR_EACH (port, node, &dp->ports) {
         struct netdev *netdev = port->netdev;
         int requested_n_rxq = netdev_requested_n_rxq(netdev);
         if (netdev_is_pmd(netdev)
             && port->latest_requested_n_rxq != requested_n_rxq) {
+            ovs_mutex_unlock(&dp->port_mutex);
             return true;
         }
     }
+    ovs_mutex_unlock(&dp->port_mutex);
 
     if (dp->pmd_cmask != NULL && cmask != NULL) {
         return strcmp(dp->pmd_cmask, cmask);
@@ -2475,7 +2488,8 @@ dpif_netdev_pmd_set(struct dpif *dpif, const char *cmask)
 
         dp_netdev_destroy_all_pmds(dp);
 
-        CMAP_FOR_EACH (port, node, &dp->ports) {
+        ovs_mutex_lock(&dp->port_mutex);
+        HMAP_FOR_EACH (port, node, &dp->ports) {
             struct netdev *netdev = port->netdev;
             int requested_n_rxq = netdev_requested_n_rxq(netdev);
             if (netdev_is_pmd(port->netdev)
@@ -2497,6 +2511,7 @@ dpif_netdev_pmd_set(struct dpif *dpif, const char *cmask)
                     VLOG_ERR("Failed to set dpdk interface %s rx_queue to:"
                              " %u", netdev_get_name(port->netdev),
                              requested_n_rxq);
+                    ovs_mutex_unlock(&dp->port_mutex);
                     return err;
                 }
                 port->latest_requested_n_rxq = requested_n_rxq;
@@ -2517,6 +2532,7 @@ dpif_netdev_pmd_set(struct dpif *dpif, const char *cmask)
         dp_netdev_set_nonpmd(dp);
         /* Restores all pmd threads. */
         dp_netdev_reset_pmd_threads(dp);
+        ovs_mutex_unlock(&dp->port_mutex);
     }
 
     return 0;
@@ -2626,8 +2642,9 @@ dpif_netdev_run(struct dpif *dpif)
                                                              NON_PMD_CORE_ID);
     uint64_t new_tnl_seq;
 
+    ovs_mutex_lock(&dp->port_mutex);
     ovs_mutex_lock(&dp->non_pmd_mutex);
-    CMAP_FOR_EACH (port, node, &dp->ports) {
+    HMAP_FOR_EACH (port, node, &dp->ports) {
         if (!netdev_is_pmd(port->netdev)) {
             int i;
 
@@ -2637,6 +2654,7 @@ dpif_netdev_run(struct dpif *dpif)
         }
     }
     ovs_mutex_unlock(&dp->non_pmd_mutex);
+    ovs_mutex_unlock(&dp->port_mutex);
     dp_netdev_pmd_unref(non_pmd);
 
     tnl_neigh_cache_run();
@@ -2657,7 +2675,8 @@ dpif_netdev_wait(struct dpif *dpif)
     struct dp_netdev *dp = get_dp_netdev(dpif);
 
     ovs_mutex_lock(&dp_netdev_mutex);
-    CMAP_FOR_EACH (port, node, &dp->ports) {
+    ovs_mutex_lock(&dp->port_mutex);
+    HMAP_FOR_EACH (port, node, &dp->ports) {
         if (!netdev_is_pmd(port->netdev)) {
             int i;
 
@@ -2666,6 +2685,7 @@ dpif_netdev_wait(struct dpif *dpif)
             }
         }
     }
+    ovs_mutex_unlock(&dp->port_mutex);
     ovs_mutex_unlock(&dp_netdev_mutex);
     seq_wait(tnl_conf_seq, dp->last_tnl_conf_seq);
 }
@@ -3293,12 +3313,13 @@ dp_netdev_set_pmds_on_numa(struct dp_netdev *dp, int numa_id)
  * new configuration. */
 static void
 dp_netdev_reset_pmd_threads(struct dp_netdev *dp)
+    OVS_REQUIRES(dp->port_mutex)
 {
     struct dp_netdev_port *port;
     struct hmapx to_reload = HMAPX_INITIALIZER(&to_reload);
     struct hmapx_node *node;
 
-    CMAP_FOR_EACH (port, node, &dp->ports) {
+    HMAP_FOR_EACH (port, node, &dp->ports) {
         if (netdev_is_pmd(port->netdev)) {
             dp_netdev_add_port_to_pmds__(dp, port, &to_reload);
         }
@@ -3854,7 +3875,6 @@ dp_netdev_clone_pkt_batch(struct dp_packet **dst_pkts,
 static void
 dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
               const struct nlattr *a, bool may_steal)
-    OVS_NO_THREAD_SAFETY_ANALYSIS
 {
     struct dp_netdev_execute_aux *aux = aux_;
     uint32_t *depth = recirc_depth_get();
@@ -4073,8 +4093,7 @@ static void
 dpif_dummy_change_port_number(struct unixctl_conn *conn, int argc OVS_UNUSED,
                               const char *argv[], void *aux OVS_UNUSED)
 {
-    struct dp_netdev_port *old_port;
-    struct dp_netdev_port *new_port;
+    struct dp_netdev_port *port;
     struct dp_netdev *dp;
     odp_port_t port_no;
 
@@ -4089,7 +4108,7 @@ dpif_dummy_change_port_number(struct unixctl_conn *conn, int argc OVS_UNUSED,
     ovs_mutex_unlock(&dp_netdev_mutex);
 
     ovs_mutex_lock(&dp->port_mutex);
-    if (get_port_by_name(dp, argv[2], &old_port)) {
+    if (get_port_by_name(dp, argv[2], &port)) {
         unixctl_command_reply_error(conn, "unknown port");
         goto exit;
     }
@@ -4104,16 +4123,14 @@ dpif_dummy_change_port_number(struct unixctl_conn *conn, int argc OVS_UNUSED,
         goto exit;
     }
 
-    /* Remove old port. */
-    cmap_remove(&dp->ports, &old_port->node, hash_port_no(old_port->port_no));
-    dp_netdev_del_port_from_all_pmds(dp, old_port);
-    ovsrcu_postpone(free, old_port);
+    /* Remove port. */
+    hmap_remove(&dp->ports, &port->node);
+    dp_netdev_del_port_from_all_pmds(dp, port);
 
-    /* Insert new port (cmap semantics mean we cannot re-insert 'old_port'). */
-    new_port = xmemdup(old_port, sizeof *old_port);
-    new_port->port_no = port_no;
-    cmap_insert(&dp->ports, &new_port->node, hash_port_no(port_no));
-    dp_netdev_add_port_to_pmds(dp, new_port);
+    /* Reinsert with new port number. */
+    port->port_no = port_no;
+    hmap_insert(&dp->ports, &port->node, hash_port_no(port_no));
+    dp_netdev_add_port_to_pmds(dp, port);
 
     seq_change(dp->port_seq);
     unixctl_command_reply(conn, NULL);
