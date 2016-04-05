@@ -1096,29 +1096,22 @@ hash_port_no(odp_port_t port_no)
 }
 
 static int
-do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
-            odp_port_t port_no)
-    OVS_REQUIRES(dp->port_mutex)
+port_create(const char *devname, const char *open_type, const char *type,
+            odp_port_t port_no, struct dp_netdev_port **portp)
 {
     struct netdev_saved_flags *sf;
     struct dp_netdev_port *port;
-    struct netdev *netdev;
     enum netdev_flags flags;
-    const char *open_type;
-    int error = 0;
-    int i, n_open_rxqs = 0;
+    struct netdev *netdev;
+    int n_open_rxqs = 0;
+    int i, error;
 
-    /* Reject devices already in 'dp'. */
-    if (!get_port_by_name(dp, devname, &port)) {
-        error = EEXIST;
-        goto out;
-    }
+    *portp = NULL;
 
     /* Open and validate network device. */
-    open_type = dpif_netdev_port_open_type(dp->class, type);
     error = netdev_open(devname, open_type, &netdev);
     if (error) {
-        goto out;
+        return error;
     }
     /* XXX reject non-Ethernet devices */
 
@@ -1126,7 +1119,7 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
     if (flags & NETDEV_LOOPBACK) {
         VLOG_ERR("%s: cannot add a loopback device", devname);
         error = EINVAL;
-        goto out_close;
+        goto out;
     }
 
     if (netdev_is_pmd(netdev)) {
@@ -1135,7 +1128,7 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
         if (n_cores == OVS_CORE_UNSPEC) {
             VLOG_ERR("%s, cannot get cpu core info", devname);
             error = ENOENT;
-            goto out_close;
+            goto out;
         }
         /* There can only be ovs_numa_get_n_cores() pmd threads,
          * so creates a txq for each, and one extra for the non
@@ -1144,14 +1137,14 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
                                   netdev_requested_n_rxq(netdev));
         if (error && (error != EOPNOTSUPP)) {
             VLOG_ERR("%s, cannot set multiq", devname);
-            goto out_close;
+            goto out;
         }
     }
     port = xzalloc(sizeof *port);
     port->port_no = port_no;
     port->netdev = netdev;
     port->n_rxq = netdev_n_rxq(netdev);
-    port->rxq = xmalloc(sizeof *port->rxq * port->n_rxq);
+    port->rxq = xcalloc(port->n_rxq, sizeof *port->rxq);
     port->type = xstrdup(type);
     port->latest_requested_n_rxq = netdev_requested_n_rxq(netdev);
 
@@ -1171,12 +1164,7 @@ do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
     }
     port->sf = sf;
 
-    cmap_insert(&dp->ports, &port->node, hash_port_no(port_no));
-
-    if (netdev_is_pmd(netdev)) {
-        dp_netdev_add_port_to_pmds(dp, port);
-    }
-    seq_change(dp->port_seq);
+    *portp = port;
 
     return 0;
 
@@ -1187,10 +1175,39 @@ out_rxq_close:
     free(port->type);
     free(port->rxq);
     free(port);
-out_close:
-    netdev_close(netdev);
+
 out:
+    netdev_close(netdev);
     return error;
+}
+
+static int
+do_add_port(struct dp_netdev *dp, const char *devname, const char *type,
+            odp_port_t port_no)
+    OVS_REQUIRES(dp->port_mutex)
+{
+    struct dp_netdev_port *port;
+    int error;
+
+    /* Reject devices already in 'dp'. */
+    if (!get_port_by_name(dp, devname, &port)) {
+        return EEXIST;
+    }
+
+    error = port_create(devname, dpif_netdev_port_open_type(dp->class, type),
+                        type, port_no, &port);
+    if (error) {
+        return error;
+    }
+
+    cmap_insert(&dp->ports, &port->node, hash_port_no(port_no));
+
+    if (netdev_is_pmd(port->netdev)) {
+        dp_netdev_add_port_to_pmds(dp, port);
+    }
+    seq_change(dp->port_seq);
+
+    return 0;
 }
 
 static int
