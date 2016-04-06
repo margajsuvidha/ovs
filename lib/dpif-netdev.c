@@ -3113,13 +3113,12 @@ dp_netdev_add_port_to_pmds__(struct dp_netdev *dp, struct dp_netdev_port *port,
 
     /* Cannot create pmd threads for invalid numa node. */
     ovs_assert(ovs_numa_numa_id_is_valid(numa_id));
+    dp_netdev_set_pmds_on_numa(dp, numa_id);
 
     for (i = 0; i < port->n_rxq; i++) {
         pmd = dp_netdev_less_loaded_pmd_on_numa(dp, numa_id);
         if (!pmd) {
-            /* There is no pmd threads on this numa node. */
-            dp_netdev_set_pmds_on_numa(dp, numa_id);
-            /* Assigning of rx queues done. */
+            VLOG_WARN("There's no pmd thread on numa node %d", numa_id);
             break;
         }
 
@@ -3158,9 +3157,9 @@ dp_netdev_set_pmds_on_numa(struct dp_netdev *dp, int numa_id)
     int n_pmds;
 
     if (!ovs_numa_numa_id_is_valid(numa_id)) {
-        VLOG_ERR("Cannot create pmd threads due to numa id (%d)"
-                 "invalid", numa_id);
-        return ;
+        VLOG_WARN("Cannot create pmd threads due to numa id (%d) invalid",
+                  numa_id);
+        return;
     }
 
     n_pmds = get_n_pmd_threads_on_numa(dp, numa_id);
@@ -3169,46 +3168,25 @@ dp_netdev_set_pmds_on_numa(struct dp_netdev *dp, int numa_id)
      * in which 'netdev' is on, do nothing.  Else, creates the
      * pmd threads for the numa node. */
     if (!n_pmds) {
-        int can_have, n_unpinned, i, index = 0;
-        struct dp_netdev_pmd_thread **pmds;
-        struct dp_netdev_port *port;
+        int can_have, n_unpinned, i;
 
         n_unpinned = ovs_numa_get_n_unpinned_cores_on_numa(numa_id);
         if (!n_unpinned) {
-            VLOG_ERR("Cannot create pmd threads due to out of unpinned "
-                     "cores on numa node %d", numa_id);
+            VLOG_WARN("Cannot create pmd threads due to out of unpinned "
+                      "cores on numa node %d", numa_id);
             return;
         }
 
         /* If cpu mask is specified, uses all unpinned cores, otherwise
          * tries creating NR_PMD_THREADS pmd threads. */
         can_have = dp->pmd_cmask ? n_unpinned : MIN(n_unpinned, NR_PMD_THREADS);
-        pmds = xzalloc(can_have * sizeof *pmds);
         for (i = 0; i < can_have; i++) {
             unsigned core_id = ovs_numa_get_unpinned_core_on_numa(numa_id);
-            pmds[i] = xzalloc(sizeof **pmds);
-            dp_netdev_configure_pmd(pmds[i], dp, core_id, numa_id);
-        }
+            struct dp_netdev_pmd_thread *pmd = xzalloc(sizeof *pmd);
 
-        /* Distributes rx queues of this numa node between new pmd threads. */
-        CMAP_FOR_EACH (port, node, &dp->ports) {
-            if (netdev_is_pmd(port->netdev)
-                && netdev_get_numa_id(port->netdev) == numa_id) {
-                for (i = 0; i < port->n_rxq; i++) {
-                    /* Make thread-safety analyser happy. */
-                    ovs_mutex_lock(&pmds[index]->poll_mutex);
-                    dp_netdev_add_rxq_to_pmd(pmds[index], port, port->rxq[i]);
-                    ovs_mutex_unlock(&pmds[index]->poll_mutex);
-                    index = (index + 1) % can_have;
-                }
-            }
+            dp_netdev_configure_pmd(pmd, dp, core_id, numa_id);
+            pmd->thread = ovs_thread_create("pmd", pmd_thread_main, pmd);
         }
-
-        /* Actual start of pmd threads. */
-        for (i = 0; i < can_have; i++) {
-            pmds[i]->thread = ovs_thread_create("pmd", pmd_thread_main, pmds[i]);
-        }
-        free(pmds);
         VLOG_INFO("Created %d pmd threads on numa node %d", can_have, numa_id);
     }
 }
@@ -3220,14 +3198,22 @@ static void
 dp_netdev_reset_pmd_threads(struct dp_netdev *dp)
 {
     struct dp_netdev_port *port;
+    struct hmapx to_reload = HMAPX_INITIALIZER(&to_reload);
+    struct hmapx_node *node;
 
     CMAP_FOR_EACH (port, node, &dp->ports) {
         if (netdev_is_pmd(port->netdev)) {
-            int numa_id = netdev_get_numa_id(port->netdev);
-
-            dp_netdev_set_pmds_on_numa(dp, numa_id);
+            dp_netdev_add_port_to_pmds__(dp, port, &to_reload);
         }
     }
+
+    HMAPX_FOR_EACH (node, &to_reload) {
+        struct dp_netdev_pmd_thread *pmd;
+        pmd = (struct dp_netdev_pmd_thread *) node->data;
+        dp_netdev_reload_pmd__(pmd);
+    }
+
+    hmapx_destroy(&to_reload);
 }
 
 static char *
