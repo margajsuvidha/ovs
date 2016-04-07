@@ -192,6 +192,10 @@ bool hmap_contains(const struct hmap *, const struct hmap_node *);
          __VA_ARGS__;                                                   \
          (NODE != OBJECT_CONTAINING(NULL, NODE, MEMBER)) || (NODE = NULL); \
          ASSIGN_CONTAINER(NODE, hmap_next(HMAP, &(NODE)->MEMBER), MEMBER))
+#define HMAP_FOR_EACH_POP(NODE, MEMBER, HMAP)                      \
+    while (!hmap_is_empty(HMAP)                                    \
+           && (INIT_CONTAINER(NODE, hmap_first(HMAP), MEMBER), 1)  \
+           && (hmap_remove(HMAP, &(NODE)->MEMBER), 1))
 
 static inline struct hmap_node *hmap_first(const struct hmap *);
 static inline struct hmap_node *hmap_next(const struct hmap *,
