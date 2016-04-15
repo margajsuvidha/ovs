@@ -23,6 +23,7 @@
 #include "netdev.h"
 #include "ovs-thread.h"
 #include "ovstest.h"
+#include "pcap-file.h"
 #include "timeval.h"
 
 static const char payload[] = "50540000000a50540000000908004500001c00000000001100000a0101010a0101020001000200080000";
@@ -141,6 +142,66 @@ test_benchmark(struct ovs_cmdl_context *ctx)
     pthread_barrier_destroy(&barrier);
     free(threads);
 }
+
+static void
+test_pcap(struct ovs_cmdl_context *ctx)
+{
+    struct dp_packet *pkts[NETDEV_MAX_BURST];
+    size_t total_count, i, pkt_count, batch_size;
+    FILE *pcap;
+    int err;
+
+    pcap = ovs_pcap_open(ctx->argv[1], "rb");
+    if (!pcap) {
+        return;
+    }
+
+    batch_size = 1;
+    if (ctx->argc > 2) {
+        batch_size = strtoul(ctx->argv[2], NULL, 0);
+        if (batch_size == 0 || batch_size > NETDEV_MAX_BURST) {
+            ovs_fatal(0, "batch_size must be between 1 and NETDEV_MAX_BURST(%u)",
+                      NETDEV_MAX_BURST);
+        }
+    }
+
+    conntrack_init(&ct);
+    total_count = 0;
+    for (;;) {
+        for (i = 0; i < batch_size; i++) {
+            struct flow dummy_flow;
+
+            err = ovs_pcap_read(pcap, &pkts[i], NULL);
+            if (err) {
+                break;
+            }
+            flow_extract(pkts[i], &dummy_flow);
+        }
+
+        pkt_count = i;
+        if (pkt_count == 0) {
+            break;
+        }
+
+        conntrack_execute(&ct, pkts, pkt_count, true, 0, NULL, NULL, NULL);
+
+        for (i = 0; i < pkt_count; i++) {
+            struct ds ds = DS_EMPTY_INITIALIZER;
+
+            total_count++;
+
+            format_flags(&ds, ct_state_to_string, pkts[i]->md.ct_state, '|');
+            printf("%"PRIuSIZE": %s\n", total_count, ds_cstr(&ds));
+
+            dp_packet_delete(pkts[i]);
+            ds_destroy(&ds);
+        }
+        if (err) {
+            break;
+        }
+    }
+    conntrack_destroy(&ct);
+}
 
 static const struct ovs_cmdl_command commands[] = {
     /* Connection tracker tests. */
@@ -149,6 +210,10 @@ static const struct ovs_cmdl_command commands[] = {
      * is '1', each packet in a batch will have a different source and
      * destination port */
     {"benchmark", "n_threads n_pkts batch_size [change_connection]", 3, 4, test_benchmark},
+    /* Reads packets from 'file' and sends them to the connection tracker,
+     * 'batch_size' (1 by default) per call, with the commit flag set.
+     * Prints the ct_state of each packet. */
+    {"pcap", "file [batch_size]", 1, 2, test_pcap},
 
     {NULL, NULL, 0, 0, NULL},
 };
