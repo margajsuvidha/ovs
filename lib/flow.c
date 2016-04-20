@@ -2206,6 +2206,7 @@ flow_compose_l4(struct dp_packet *p, const struct flow *flow)
             udp = dp_packet_put_zeros(p, l4_len);
             udp->udp_src = flow->tp_src;
             udp->udp_dst = flow->tp_dst;
+            udp->udp_len = htons(l4_len);
         } else if (flow->nw_proto == IPPROTO_SCTP) {
             struct sctp_header *sctp;
 
