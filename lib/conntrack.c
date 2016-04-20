@@ -462,6 +462,19 @@ check_l4_tcp(const void *data, size_t size)
 }
 
 static inline bool
+check_l4_udp(const void *data, size_t size)
+{
+    const struct udp_header *udp = data;
+    size_t udp_len = ntohs(udp->udp_len);
+
+    if (OVS_LIKELY(udp_len >= UDP_HEADER_LEN && udp_len <= size)) {
+        return true;
+    }
+
+    return false;
+}
+
+static inline bool
 extract_l4_tcp(struct conn_key *key, const void *data, size_t size)
 {
     const struct tcp_header *tcp = data;
@@ -652,7 +665,8 @@ extract_l4(struct conn_key *key, const void *data, size_t size, bool *related)
         return extract_l4_tcp(key, data, size)
                && (!related || check_l4_tcp(data, size));
     } else if (key->nw_proto == IPPROTO_UDP) {
-        return extract_l4_udp(key, data, size);
+        return extract_l4_udp(key, data, size)
+               && (!related || check_l4_udp(data, size));
     } else if (key->dl_type == htons(ETH_TYPE_IP)
                && key->nw_proto == IPPROTO_ICMP) {
         return extract_l4_icmp(key, data, size, related);
