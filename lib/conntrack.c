@@ -847,32 +847,25 @@ conn_key_lookup(struct conntrack *ct,
                 unsigned bucket,
                 long long now)
 {
-    struct conn *conn, *found = NULL;
     uint32_t hash = ctx->hash;
-    bool reply;
+    struct conn *conn;
+
+    ctx->conn = NULL;
 
     HMAP_FOR_EACH_WITH_HASH (conn, node, hash, &ct->connections[bucket]) {
-        if (!memcmp(&conn->key, &ctx->key, sizeof(conn->key))) {
-            found = conn;
-            reply = false;
+        if (!memcmp(&conn->key, &ctx->key, sizeof(conn->key))
+                && !conn_expired(conn, now)) {
+            ctx->conn = conn;
+            ctx->reply = false;
             break;
         }
-        if (!memcmp(&conn->rev_key, &ctx->key, sizeof(conn->rev_key))) {
-            found = conn;
-            reply = true;
+        if (!memcmp(&conn->rev_key, &ctx->key, sizeof(conn->rev_key))
+                && !conn_expired(conn, now)) {
+            ctx->conn = conn;
+            ctx->reply = true;
             break;
         }
     }
-
-    if (found) {
-        if (conn_expired(found, now)) {
-            found = NULL;
-        } else {
-            ctx->reply = reply;
-        }
-    }
-
-    ctx->conn = found;
 }
 
 static enum ct_update_res
