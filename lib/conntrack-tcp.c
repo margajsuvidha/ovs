@@ -94,12 +94,7 @@ tcp_invalid_flags(uint16_t flags)
 {
 
     if (flags & TCP_SYN) {
-        if (flags & TCP_RST) {
-            return true;
-        }
-        if (flags & TCP_FIN) {
-            /* Here pf removes the fin flag.  We simply mark the packet as
-             * invalid */
+        if (flags & TCP_RST || flags & TCP_FIN) {
             return true;
         }
     } else {
