@@ -818,13 +818,16 @@ conn_key_hash(const struct conn_key *key, uint32_t basis)
 
     hsrc = hdst = basis;
 
+    /* Hash the source and destination tuple */
     for (i = 0; i < sizeof(key->src) / sizeof(uint32_t); i++) {
         hsrc = hash_add(hsrc, ((uint32_t *) &key->src)[i]);
         hdst = hash_add(hdst, ((uint32_t *) &key->dst)[i]);
     }
 
+    /* Even if source and destination are swapped the hash will be the same. */
     hash = hsrc ^ hdst;
 
+    /* Hash the rest of the key(L3 and L4 types and zone). */
     hash = hash_words((uint32_t *) &key->dst + 1,
                       (uint32_t *) (key + 1) - (uint32_t *) (&key->dst + 1),
                       hash);
