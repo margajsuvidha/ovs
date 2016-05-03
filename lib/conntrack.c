@@ -24,6 +24,7 @@
 
 #include "bitmap.h"
 #include "conntrack-private.h"
+#include "coverage.h"
 #include "csum.h"
 #include "dp-packet.h"
 #include "flow.h"
@@ -36,6 +37,8 @@
 #include "timeval.h"
 
 VLOG_DEFINE_THIS_MODULE(conntrack);
+
+COVERAGE_DEFINE(conntrack_new_full);
 
 struct conn_lookup_ctx {
     struct conn_key key;
@@ -73,6 +76,10 @@ static struct ct_l4_proto *l4_protos[] = {
     [IPPROTO_ICMPV6] = &ct_proto_other,
 };
 
+/* If the total number of connections goes above this value, no new connections
+ * are accepted */
+#define DEFAULT_N_CONN_LIMIT 3000000
+
 /* Initializes the connection tracker 'ct'.  The caller is responbile for
  * calling 'conntrack_destroy()', when the instance is not needed anymore */
 void
@@ -90,6 +97,8 @@ conntrack_init(struct conntrack *ct)
     ct->purge_bucket = 0;
     ct->purge_inner_bucket = 0;
     ct->purge_inner_offset = 0;
+    atomic_count_init(&ct->n_conn, 0);
+    atomic_init(&ct->n_conn_limit, DEFAULT_N_CONN_LIMIT);
 }
 
 /* Destroys the connection tracker 'ct' and frees all the allocated memory. */
@@ -102,7 +111,8 @@ conntrack_destroy(struct conntrack *ct)
         struct conn *conn;
 
         ct_lock_lock(&ct->locks[i]);
-        HMAP_FOR_EACH_POP(conn, node, &ct->connections[i]) {
+        HMAP_FOR_EACH_POP(conn, node, &ctb->connections) {
+            atomic_count_dec(&ct->n_conn);
             delete_conn(conn);
         }
         hmap_destroy(&ct->connections[i]);
@@ -146,12 +156,22 @@ conn_not_found(struct conntrack *ct, struct dp_packet *pkt,
     *state |= CS_NEW;
 
     if (commit) {
+        unsigned int n_conn_limit;
+
+        atomic_read_relaxed(&ct->n_conn_limit, &n_conn_limit);
+
+        if (atomic_count_get(&ct->n_conn) >= n_conn_limit) {
+            COVERAGE_INC(conntrack_new_full);
+            return nc;
+        }
+
         nc = new_conn(pkt, &ctx->key, now);
 
         memcpy(&nc->rev_key, &ctx->key, sizeof nc->rev_key);
 
         conn_key_reverse(&nc->rev_key);
         hmap_insert(&ct->connections[bucket], &nc->node, ctx->hash);
+        atomic_count_inc(&ct->n_conn);
     }
 
     return nc;
@@ -189,6 +209,7 @@ process_one(struct conntrack *ct, struct dp_packet *pkt,
                 break;
             case CT_UPDATE_NEW:
                 hmap_remove(&ct->connections[bucket], &conn->node);
+                atomic_count_dec(&ct->n_conn);
                 delete_conn(conn);
                 conn = conn_not_found(ct, pkt, ctx, &state, commit, now);
                 break;
@@ -314,7 +335,7 @@ set_label(struct dp_packet *pkt, struct conn *conn,
 #define CONNTRACK_PURGE_NUM 256
 
 static void
-sweep_bucket(struct hmap *bucket, uint32_t *inner_bucket,
+sweep_bucket(struct conntrack *ct, struct hmap *bucket, uint32_t *inner_bucket,
              uint32_t *inner_offset, unsigned *left, long long now)
 {
     while (*left != 0) {
@@ -331,6 +352,7 @@ sweep_bucket(struct hmap *bucket, uint32_t *inner_bucket,
         INIT_CONTAINER(conn, node, node);
         if (conn_expired(conn, now)) {
             hmap_remove(bucket, &conn->node);
+            atomic_count_dec(&ct->n_conn);
             delete_conn(conn);
             (*left)--;
         }
@@ -349,7 +371,7 @@ conntrack_run(struct conntrack *ct)
 
     while (bucket < CONNTRACK_BUCKETS) {
         ct_lock_lock(&ct->locks[bucket]);
-        sweep_bucket(&ct->connections[bucket],
+        sweep_bucket(ct, &ct->connections[bucket],
                      &inner_bucket, &inner_offset,
                      &left, now);
         ct_lock_unlock(&ct->locks[bucket]);

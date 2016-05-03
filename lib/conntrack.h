@@ -23,6 +23,7 @@
 #include "odp-netlink.h"
 #include "openvswitch/thread.h"
 #include "openvswitch/types.h"
+#include "ovs-atomic.h"
 
 
 struct dp_packet;
@@ -110,6 +111,8 @@ struct conntrack {
     unsigned purge_bucket;
     uint32_t purge_inner_bucket;
     uint32_t purge_inner_offset;
+    atomic_count n_conn;
+    atomic_uint n_conn_limit;
 };
 
 #endif /* conntrack.h */
