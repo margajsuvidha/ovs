@@ -100,6 +100,27 @@ static inline void ct_lock_destroy(struct ct_lock *lock)
     ovs_mutex_destroy(&lock->lock);
 }
 
+/* Timeouts: all the possible timeout states passed to update_expiration()
+ * are listed here. The name will be prefix by CT_TM_ and the value is in
+ * milliseconds */
+#define CT_TIMEOUTS \
+    CT_TIMEOUT(TCP_FIRST_PACKET, 30 * 1000) \
+    CT_TIMEOUT(TCP_OPENING, 30 * 1000) \
+    CT_TIMEOUT(TCP_ESTABLISHED, 24 * 60 * 60 * 1000) \
+    CT_TIMEOUT(TCP_CLOSING, 15 * 60 * 1000) \
+    CT_TIMEOUT(TCP_FIN_WAIT, 45 * 1000) \
+    CT_TIMEOUT(TCP_CLOSED, 30 * 1000) \
+    CT_TIMEOUT(OTHER_FIRST, 60 * 1000) \
+    CT_TIMEOUT(OTHER_MULTIPLE, 60 * 1000) \
+    CT_TIMEOUT(OTHER_BIDIR, 30 * 1000) \
+
+enum ct_timeout {
+#define CT_TIMEOUT(NAME, VALUE) CT_TM_##NAME,
+    CT_TIMEOUTS
+#undef CT_TIMEOUT
+    N_CT_TM
+};
+
 #define CONNTRACK_BUCKETS_SHIFT 8
 #define CONNTRACK_BUCKETS (1 << CONNTRACK_BUCKETS_SHIFT)
 

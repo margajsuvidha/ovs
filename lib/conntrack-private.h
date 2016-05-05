@@ -21,7 +21,9 @@
 #include <netinet/in.h>
 #include <netinet/ip6.h>
 
+#include "conntrack.h"
 #include "hmap.h"
+#include "openvswitch/list.h"
 #include "openvswitch/types.h"
 #include "packets.h"
 #include "unaligned.h"
@@ -53,6 +55,7 @@ struct conn {
     struct conn_key key;
     struct conn_key rev_key;
     long long expiration;
+    struct ovs_list exp_node;
     struct hmap_node node;
     uint32_t mark;
     ovs_u128 label;
@@ -73,5 +76,13 @@ struct ct_l4_proto {
 
 extern struct ct_l4_proto ct_proto_tcp;
 extern struct ct_l4_proto ct_proto_other;
+
+extern long long ct_timeout_val[];
+
+static inline void
+update_expiration(struct conn *conn, enum ct_timeout tm, long long now)
+{
+    conn->expiration = now + ct_timeout_val[tm];
+}
 
 #endif /* conntrack-private.h */

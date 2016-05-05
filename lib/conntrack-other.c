@@ -30,22 +30,16 @@ struct conn_other {
     enum other_state state;
 };
 
-static const long long other_timeouts[] = {
-    [OTHERS_FIRST] = 60 * 1000,     /* 60 seconds */
-    [OTHERS_MULTIPLE] = 60 * 1000,  /* 60 seconds */
-    [OTHERS_BIDIR] = 30 * 1000,     /* 30 seconds */
+static const enum ct_timeout other_timeouts[] = {
+    [OTHERS_FIRST] = CT_TM_OTHER_FIRST,
+    [OTHERS_MULTIPLE] = CT_TM_OTHER_MULTIPLE,
+    [OTHERS_BIDIR] = CT_TM_OTHER_BIDIR,
 };
 
 static struct conn_other *
 conn_other_cast(const struct conn *conn)
 {
     return CONTAINER_OF(conn, struct conn_other, up);
-}
-
-static void
-update_expiration(struct conn_other *conn, long long now)
-{
-    conn->up.expiration = now + other_timeouts[conn->state];
 }
 
 static enum ct_update_res
@@ -60,7 +54,7 @@ other_conn_update(struct conn *conn_, struct dp_packet *pkt OVS_UNUSED,
         conn->state = OTHERS_MULTIPLE;
     }
 
-    update_expiration(conn, now);
+    update_expiration(conn_, other_timeouts[conn->state], now);
 
     return CT_UPDATE_VALID;
 }
@@ -79,7 +73,7 @@ other_new_conn(struct dp_packet *pkt OVS_UNUSED, long long now)
     conn = xzalloc(sizeof *conn);
     conn->state = OTHERS_FIRST;
 
-    update_expiration(conn, now);
+    update_expiration(&conn->up, other_timeouts[conn->state], now);
 
     return &conn->up;
 }

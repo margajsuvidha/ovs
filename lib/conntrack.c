@@ -76,6 +76,12 @@ static struct ct_l4_proto *l4_protos[] = {
     [IPPROTO_ICMPV6] = &ct_proto_other,
 };
 
+long long ct_timeout_val[] = {
+#define CT_TIMEOUT(NAME, VAL) [CT_TM_##NAME] = VAL,
+    CT_TIMEOUTS
+#undef CT_TIMEOUT
+};
+
 /* If the total number of connections goes above this value, no new connections
  * are accepted */
 #define DEFAULT_N_CONN_LIMIT 3000000

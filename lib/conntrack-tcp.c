@@ -62,14 +62,6 @@ enum {
     TCPOPT_WINDOW = 3,
 };
 
-/* Timeout values in ms */
-#define TCP_TIMEOUT_FIRST_PACKET (30 * 1000)
-#define TCP_TIMEOUT_OPENING (30 * 1000)
-#define TCP_TIMEOUT_ESTABLISHED (24 * 60 * 60 * 1000)
-#define TCP_TIMEOUT_CLOSING (15 * 60 * 1000)
-#define TCP_TIMEOUT_FIN_WAIT (45 * 1000)
-#define TCP_TIMEOUT_CLOSED (30 * 1000)
-
 /* TCP sequence numbers are 32 bit integers operated
  * on with modular arithmetic.  These macros can be
  * used to compare such integers. */
@@ -158,13 +150,6 @@ tcp_payload_length(struct dp_packet *pkt)
     return (char *) dp_packet_tail(pkt) - dp_packet_l2_pad_size(pkt)
            - (char *) dp_packet_get_tcp_payload(pkt);
 }
-
-static void
-update_expiration(struct conn_tcp *conn, long long now, long long interval)
-{
-    conn->up.expiration = now + interval;
-}
-
 
 static enum ct_update_res
 tcp_conn_update(struct conn* conn_, struct dp_packet *pkt, bool reply,
@@ -335,18 +320,18 @@ tcp_conn_update(struct conn* conn_, struct dp_packet *pkt, bool reply,
 
         if (src->state >= CT_DPIF_TCPS_FIN_WAIT_2
             && dst->state >= CT_DPIF_TCPS_FIN_WAIT_2) {
-            update_expiration(conn, now, TCP_TIMEOUT_CLOSED);
+            update_expiration(conn_, CT_TM_TCP_CLOSED, now);
         } else if (src->state >= CT_DPIF_TCPS_CLOSING
                    && dst->state >= CT_DPIF_TCPS_CLOSING) {
-            update_expiration(conn, now, TCP_TIMEOUT_FIN_WAIT);
+            update_expiration(conn_, CT_TM_TCP_FIN_WAIT, now);
         } else if (src->state < CT_DPIF_TCPS_ESTABLISHED
                    || dst->state < CT_DPIF_TCPS_ESTABLISHED) {
-            update_expiration(conn, now, TCP_TIMEOUT_OPENING);
+            update_expiration(conn_, now, CT_TM_TCP_OPENING);
         } else if (src->state >= CT_DPIF_TCPS_CLOSING
                    || dst->state >= CT_DPIF_TCPS_CLOSING) {
-            update_expiration(conn, now, TCP_TIMEOUT_CLOSING);
+            update_expiration(conn_, now, CT_TM_TCP_CLOSING);
         } else {
-            update_expiration(conn, now, TCP_TIMEOUT_ESTABLISHED);
+            update_expiration(conn_, now, CT_TM_TCP_ESTABLISHED);
         }
     } else if ((dst->state < CT_DPIF_TCPS_SYN_SENT
                 || dst->state >= CT_DPIF_TCPS_FIN_WAIT_2
@@ -466,7 +451,7 @@ tcp_new_conn(struct dp_packet *pkt, long long now)
     src->state = CT_DPIF_TCPS_SYN_SENT;
     dst->state = CT_DPIF_TCPS_CLOSED;
 
-    update_expiration(newconn, now, TCP_TIMEOUT_FIRST_PACKET);
+    update_expiration(&newconn->up, now, CT_TM_TCP_FIRST_PACKET);
 
     return &newconn->up;
 }
