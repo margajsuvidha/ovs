@@ -435,7 +435,7 @@ tcp_new_conn(struct dp_packet *pkt, long long now)
     struct tcp_peer *src, *dst;
     uint16_t tcp_flags = TCP_FLAGS(tcp->tcp_ctl);
 
-    newconn = xzalloc(sizeof(struct conn_tcp));
+    newconn = xzalloc(sizeof *newconn);
 
     src = &newconn->peer[0];
     dst = &newconn->peer[1];

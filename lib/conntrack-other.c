@@ -76,7 +76,7 @@ other_new_conn(struct dp_packet *pkt OVS_UNUSED, long long now)
 {
     struct conn_other *conn;
 
-    conn = xzalloc(sizeof(struct conn_other));
+    conn = xzalloc(sizeof *conn);
     conn->state = OTHERS_FIRST;
 
     update_expiration(conn, now);
