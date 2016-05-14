@@ -530,7 +530,8 @@ extract_l4_tcp(struct conn_key *key, const void *data, size_t size)
     key->src.port = tcp->tcp_src;
     key->dst.port = tcp->tcp_dst;
 
-    return true;
+    /* Port 0 is invalid */
+    return key->src.port && key->dst.port;
 }
 
 static inline bool
@@ -545,7 +546,8 @@ extract_l4_udp(struct conn_key *key, const void *data, size_t size)
     key->src.port = udp->udp_src;
     key->dst.port = udp->udp_dst;
 
-    return true;
+    /* Port 0 is invalid */
+    return key->src.port && key->dst.port;
 }
 
 static inline bool extract_l4(struct conn_key *key, const void *data,
