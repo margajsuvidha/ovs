@@ -1069,7 +1069,7 @@ conn_key_to_tuple(const struct conn_key *key, struct ct_dpif_tuple *tuple)
     ct_endpoint_to_ct_dpif_inet_addr(&key->dst.addr, &tuple->dst,
                                      key->dl_type);
 
-    if (key->nw_proto == IPPROTO_ICMP) {
+    if (key->nw_proto == IPPROTO_ICMP || key->nw_proto == IPPROTO_ICMPV6) {
         tuple->icmp_id = key->src.port;
         /* ICMP type and code are not tracked */
         tuple->icmp_type = 0;
@@ -1099,7 +1099,7 @@ conn_to_ct_dpif_entry(const struct conn *conn, struct ct_dpif_entry *entry,
     entry->timestamp.stop = 0;
 
     expiration = conn->expiration - now;
-    entry->timeout = (expiration > 0) ? expiration / 1000: 0;
+    entry->timeout = (expiration > 0) ? expiration / 1000 : 0;
 
     class = l4_protos[conn->key.nw_proto];
     if (class->conn_get_protoinfo) {
