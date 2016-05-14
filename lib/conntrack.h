@@ -20,7 +20,6 @@
 #include <stdbool.h>
 
 #include "hmap.h"
-#include "netdev-dpdk.h"
 #include "odp-netlink.h"
 #include "openvswitch/thread.h"
 #include "openvswitch/types.h"
@@ -69,43 +68,16 @@ int conntrack_execute(struct conntrack *, struct dp_packet **, size_t,
                       const struct ovs_key_ct_labels *setlabel,
                       const char *helper);
 
-/* struct ct_lock is a standard mutex or a spinlock when using DPDK */
+/* 'struct ct_lock' is a wrapper for an adaptive mutex.  It's useful to try
+ * different types of locks (e.g. spinlocks) */
 
-#ifdef DPDK_NETDEV
-struct OVS_LOCKABLE ct_lock {
-    rte_spinlock_t lock;
-};
-
-static inline void ct_lock_init(struct ct_lock *lock)
-{
-    rte_spinlock_init(&lock->lock);
-}
-
-static inline void ct_lock_lock(struct ct_lock *lock)
-    OVS_ACQUIRES(lock)
-    OVS_NO_THREAD_SAFETY_ANALYSIS
-{
-    rte_spinlock_lock(&lock->lock);
-}
-
-static inline void ct_lock_unlock(struct ct_lock *lock)
-    OVS_RELEASES(lock)
-    OVS_NO_THREAD_SAFETY_ANALYSIS
-{
-    rte_spinlock_unlock(&lock->lock);
-}
-
-static inline void ct_lock_destroy(struct ct_lock *lock OVS_UNUSED)
-{
-}
-#else
 struct OVS_LOCKABLE ct_lock {
     struct ovs_mutex lock;
 };
 
 static inline void ct_lock_init(struct ct_lock *lock)
 {
-    ovs_mutex_init(&lock->lock);
+    ovs_mutex_init_adaptive(&lock->lock);
 }
 
 static inline void ct_lock_lock(struct ct_lock *lock)
@@ -126,7 +98,6 @@ static inline void ct_lock_destroy(struct ct_lock *lock)
 {
     ovs_mutex_destroy(&lock->lock);
 }
-#endif
 
 #define CONNTRACK_BUCKETS_SHIFT 8
 #define CONNTRACK_BUCKETS (1 << CONNTRACK_BUCKETS_SHIFT)
