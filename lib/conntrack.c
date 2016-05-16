@@ -338,64 +338,6 @@ set_label(struct dp_packet *pkt, struct conn *conn,
     conn->label = pkt->md.ct_label;
 }
 
-#define CONNTRACK_PURGE_NUM 256
-
-static void
-sweep_bucket(struct conntrack *ct, struct hmap *bucket, uint32_t *inner_bucket,
-             uint32_t *inner_offset, unsigned *left, long long now)
-{
-    while (*left != 0) {
-        struct hmap_node *node;
-        struct conn *conn;
-
-        node = hmap_at_position(bucket, inner_bucket, inner_offset);
-
-        if (!node) {
-            hmap_shrink(bucket);
-            break;
-        }
-
-        INIT_CONTAINER(conn, node, node);
-        if (conn_expired(conn, now)) {
-            hmap_remove(bucket, &conn->node);
-            atomic_count_dec(&ct->n_conn);
-            delete_conn(conn);
-            (*left)--;
-        }
-    }
-}
-
-/* Cleans up old connection entries.  Should be called periodically. */
-void
-conntrack_run(struct conntrack *ct)
-{
-    unsigned bucket = hash_to_bucket(ct->purge_bucket);
-    uint32_t inner_bucket = ct->purge_inner_bucket;
-    uint32_t inner_offset = ct->purge_inner_offset;
-    unsigned left = CONNTRACK_PURGE_NUM;
-    long long now = time_msec();
-
-    while (bucket < CONNTRACK_BUCKETS) {
-        struct conntrack_bucket *ctb = &ct->buckets[bucket];
-
-        ct_lock_lock(&ctb->lock);
-        sweep_bucket(ct, &ctb->connections,
-                     &inner_bucket, &inner_offset,
-                     &left, now);
-        ct_lock_unlock(&ctb->lock);
-
-        if (left == 0) {
-            break;
-        } else {
-            bucket++;
-        }
-    }
-
-    ct->purge_bucket = bucket;
-    ct->purge_inner_bucket = inner_bucket;
-    ct->purge_inner_offset = inner_offset;
-}
-
 /* Key extraction */
 
 /* The function stores a pointer to the first byte after the header in

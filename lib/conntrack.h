@@ -133,9 +133,7 @@ struct conntrack {
     struct conntrack_bucket buckets[CONNTRACK_BUCKETS];
 
     uint32_t hash_basis;
-    unsigned purge_bucket;
-    uint32_t purge_inner_bucket;
-    uint32_t purge_inner_offset;
+
     atomic_count n_conn;
     atomic_uint n_conn_limit;
 };
