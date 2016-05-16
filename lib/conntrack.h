@@ -20,7 +20,9 @@
 #include <stdbool.h>
 
 #include "hmap.h"
+#include "latch.h"
 #include "odp-netlink.h"
+#include "openvswitch/list.h"
 #include "openvswitch/thread.h"
 #include "openvswitch/types.h"
 #include "ovs-atomic.h"
@@ -61,7 +63,6 @@ struct dp_packet;
 struct conntrack;
 
 void conntrack_init(struct conntrack *);
-void conntrack_run(struct conntrack *);
 void conntrack_destroy(struct conntrack *);
 
 int conntrack_execute(struct conntrack *, struct dp_packet **, size_t,
@@ -114,6 +115,10 @@ static inline void ct_lock_destroy(struct ct_lock *lock)
     CT_TIMEOUT(OTHER_MULTIPLE, 60 * 1000) \
     CT_TIMEOUT(OTHER_BIDIR, 30 * 1000) \
 
+/* The smallest of the above values: it is used as an upper bound for the
+ * interval between two rounds of cleanup of expired entries */
+#define CT_TM_MIN (30 * 1000)
+
 enum ct_timeout {
 #define CT_TIMEOUT(NAME, VALUE) CT_TM_##NAME,
     CT_TIMEOUTS
@@ -125,10 +130,29 @@ enum ct_timeout {
  *
  * The connections are kept in different buckets, which are completely
  * independent. The connection bucket is determined by the hash of its key.
+ *
+ * Each bucket has two locks. Acquisition order is, from outermost to
+ * innermost:
+ *
+ *    lock
+ *    cleanup_mutex
+ *
  * */
 struct conntrack_bucket {
+    /* Protects 'connections' and 'exp_lists'.  Used in the fast path */
     struct ct_lock lock;
+    /* Contains the connections in the bucket, indexed by key */
     struct hmap connections OVS_GUARDED;
+    /* For each possible timeout we have a list of connections. When the
+     * timeout of a connection is updated, we move it to the back of the list.
+     * Since the connection in a list have the same relative timeout, the list
+     * will be ordered, with the oldest connections to the front. */
+    struct ovs_list exp_lists[N_CT_TM] OVS_GUARDED;
+
+    /* Protects 'next_cleanup'. Used to make sure that there's only one thread
+     * performing the cleanup. */
+    struct ovs_mutex cleanup_mutex;
+    long long next_cleanup OVS_GUARDED;
 };
 
 #define CONNTRACK_BUCKETS_SHIFT 8
@@ -140,6 +164,12 @@ struct conntrack {
 
     /* Salt for hashing a connection key. */
     uint32_t hash_basis;
+
+    /* The thread performing periodic cleanup of the connection
+     * tracker */
+    pthread_t clean_thread;
+    /* Latch to destroy the 'clean_thread' */
+    struct latch clean_thread_exit;
 
     /* Number of connections currently in the connection tracker. */
     atomic_count n_conn;
