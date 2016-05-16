@@ -128,10 +128,9 @@ tcp_get_wscale(const struct tcp_header *tcp)
     uint8_t optlen;
 
     while (len >= 3) {
-        if (*opt == TCPOPT_EOL) {
-            break;
-        }
         switch (*opt) {
+        case TCPOPT_EOL:
+            return wscale;
         case TCPOPT_NOP:
             opt++;
             len--;
