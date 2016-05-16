@@ -121,6 +121,11 @@ enum ct_timeout {
     N_CT_TM
 };
 
+/* Locking:
+ *
+ * The connections are kept in different buckets, which are completely
+ * independent. The connection bucket is determined by the hash of its key.
+ * */
 struct conntrack_bucket {
     struct ct_lock lock;
     struct hmap connections OVS_GUARDED;
@@ -130,11 +135,16 @@ struct conntrack_bucket {
 #define CONNTRACK_BUCKETS (1 << CONNTRACK_BUCKETS_SHIFT)
 
 struct conntrack {
+    /* Independent buckets containing the connections */
     struct conntrack_bucket buckets[CONNTRACK_BUCKETS];
 
+    /* Salt for hashing a connection key. */
     uint32_t hash_basis;
 
+    /* Number of connections currently in the connection tracker. */
     atomic_count n_conn;
+    /* Connections limit. When this limit is reached, no new connection
+     * will be accepted. */
     atomic_uint n_conn_limit;
 };
 
