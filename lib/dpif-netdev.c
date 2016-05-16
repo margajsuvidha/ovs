@@ -3870,9 +3870,6 @@ dp_execute_cb(void *aux_, struct dp_packet **packets, int cnt,
         const uint32_t *setmark = NULL;
         const struct ovs_key_ct_labels *setlabel = NULL;
 
-
-        /* XXX parsing this everytime is expensive.  We should do like kernel
-         * does and create a structure. */
         NL_ATTR_FOR_EACH_UNSAFE (b, left, nl_attr_get(a),
                                  nl_attr_get_size(a)) {
             enum ovs_ct_attr sub_type = nl_attr_type(b);
