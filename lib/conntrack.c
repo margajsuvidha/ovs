@@ -52,9 +52,8 @@ static bool conn_key_extract(struct conntrack *, struct dp_packet *,
                              struct conn_lookup_ctx *, uint16_t zone);
 static uint32_t conn_key_hash(const struct conn_key *, uint32_t basis);
 static void conn_key_reverse(struct conn_key *);
-static void conn_key_lookup(struct conntrack *ct,
+static void conn_key_lookup(struct conntrack_bucket *ctb,
                             struct conn_lookup_ctx *ctx,
-                            unsigned bucket,
                             long long now);
 static bool valid_new(struct dp_packet *pkt, struct conn_key *);
 static struct conn *new_conn(struct dp_packet *pkt, struct conn_key *,
@@ -94,15 +93,14 @@ conntrack_init(struct conntrack *ct)
     unsigned i;
 
     for (i = 0; i < CONNTRACK_BUCKETS; i++) {
-        ct_lock_init(&ct->locks[i]);
-        ct_lock_lock(&ct->locks[i]);
-        hmap_init(&ct->connections[i]);
-        ct_lock_unlock(&ct->locks[i]);
+        struct conntrack_bucket *ctb = &ct->buckets[i];
+
+        ct_lock_init(&ctb->lock);
+        ct_lock_lock(&ctb->lock);
+        hmap_init(&ctb->connections);
+        ct_lock_unlock(&ctb->lock);
     }
     ct->hash_basis = random_uint32();
-    ct->purge_bucket = 0;
-    ct->purge_inner_bucket = 0;
-    ct->purge_inner_offset = 0;
     atomic_count_init(&ct->n_conn, 0);
     atomic_init(&ct->n_conn_limit, DEFAULT_N_CONN_LIMIT);
 }
@@ -114,16 +112,17 @@ conntrack_destroy(struct conntrack *ct)
     unsigned i;
 
     for (i = 0; i < CONNTRACK_BUCKETS; i++) {
+        struct conntrack_bucket *ctb = &ct->buckets[i];
         struct conn *conn;
 
-        ct_lock_lock(&ct->locks[i]);
+        ct_lock_lock(&ctb->lock);
         HMAP_FOR_EACH_POP(conn, node, &ctb->connections) {
             atomic_count_dec(&ct->n_conn);
             delete_conn(conn);
         }
-        hmap_destroy(&ct->connections[i]);
-        ct_lock_unlock(&ct->locks[i]);
-        ct_lock_destroy(&ct->locks[i]);
+        hmap_destroy(&ctb->connections);
+        ct_lock_unlock(&ctb->lock);
+        ct_lock_destroy(&ctb->lock);
     }
 }
 
@@ -176,7 +175,7 @@ conn_not_found(struct conntrack *ct, struct dp_packet *pkt,
         memcpy(&nc->rev_key, &ctx->key, sizeof nc->rev_key);
 
         conn_key_reverse(&nc->rev_key);
-        hmap_insert(&ct->connections[bucket], &nc->node, ctx->hash);
+        hmap_insert(&ct->buckets[bucket].connections, &nc->node, ctx->hash);
         atomic_count_inc(&ct->n_conn);
     }
 
@@ -214,7 +213,7 @@ process_one(struct conntrack *ct, struct dp_packet *pkt,
                 state |= CS_INVALID;
                 break;
             case CT_UPDATE_NEW:
-                hmap_remove(&ct->connections[bucket], &conn->node);
+                hmap_remove(&ct->buckets[bucket].connections, &conn->node);
                 atomic_count_dec(&ct->n_conn);
                 delete_conn(conn);
                 conn = conn_not_found(ct, pkt, ctx, &state, commit, now);
@@ -289,14 +288,15 @@ conntrack_execute(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
     }
 
     for (i = 0; i < arrcnt; i++) {
+        struct conntrack_bucket *ctb = &ct->buckets[arr[i].bucket];
         size_t j;
 
-        ct_lock_lock(&ct->locks[arr[i].bucket]);
+        ct_lock_lock(&ctb->lock);
 
         ULLONG_FOR_EACH_1(j, arr[i].maps) {
             struct conn *conn;
 
-            conn_key_lookup(ct, &ctxs[j], arr[i].bucket, now);
+            conn_key_lookup(ctb, &ctxs[j], now);
 
             conn = process_one(ct, pkts[j], &ctxs[j], zone, commit, now);
 
@@ -308,7 +308,7 @@ conntrack_execute(struct conntrack *ct, struct dp_packet **pkts, size_t cnt,
                 set_label(pkts[j], conn, &setlabel[0], &setlabel[1]);
             }
         }
-        ct_lock_unlock(&ct->locks[arr[i].bucket]);
+        ct_lock_unlock(&ctb->lock);
     }
 
     return 0;
@@ -376,11 +376,13 @@ conntrack_run(struct conntrack *ct)
     long long now = time_msec();
 
     while (bucket < CONNTRACK_BUCKETS) {
-        ct_lock_lock(&ct->locks[bucket]);
-        sweep_bucket(ct, &ct->connections[bucket],
+        struct conntrack_bucket *ctb = &ct->buckets[bucket];
+
+        ct_lock_lock(&ctb->lock);
+        sweep_bucket(ct, &ctb->connections,
                      &inner_bucket, &inner_offset,
                      &left, now);
-        ct_lock_unlock(&ct->locks[bucket]);
+        ct_lock_unlock(&ctb->lock);
 
         if (left == 0) {
             break;
@@ -873,9 +875,8 @@ conn_key_reverse(struct conn_key *key)
 }
 
 static void
-conn_key_lookup(struct conntrack *ct,
+conn_key_lookup(struct conntrack_bucket *ctb,
                 struct conn_lookup_ctx *ctx,
-                unsigned bucket,
                 long long now)
 {
     uint32_t hash = ctx->hash;
@@ -883,7 +884,7 @@ conn_key_lookup(struct conntrack *ct,
 
     ctx->conn = NULL;
 
-    HMAP_FOR_EACH_WITH_HASH (conn, node, hash, &ct->connections[bucket]) {
+    HMAP_FOR_EACH_WITH_HASH (conn, node, hash, &ctb->connections) {
         if (!memcmp(&conn->key, &ctx->key, sizeof(conn->key))
                 && !conn_expired(conn, now)) {
             ctx->conn = conn;

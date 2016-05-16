@@ -121,13 +121,17 @@ enum ct_timeout {
     N_CT_TM
 };
 
+struct conntrack_bucket {
+    struct ct_lock lock;
+    struct hmap connections OVS_GUARDED;
+};
+
 #define CONNTRACK_BUCKETS_SHIFT 8
 #define CONNTRACK_BUCKETS (1 << CONNTRACK_BUCKETS_SHIFT)
 
 struct conntrack {
-    /* Each lock guards a 'connections' bucket */
-    struct ct_lock locks[CONNTRACK_BUCKETS];
-    struct hmap connections[CONNTRACK_BUCKETS] OVS_GUARDED;
+    struct conntrack_bucket buckets[CONNTRACK_BUCKETS];
+
     uint32_t hash_basis;
     unsigned purge_bucket;
     uint32_t purge_inner_bucket;
