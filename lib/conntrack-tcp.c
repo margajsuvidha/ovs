@@ -73,13 +73,13 @@ enum {
 /* TCP sequence numbers are 32 bit integers operated
  * on with modular arithmetic.  These macros can be
  * used to compare such integers. */
-#define SEQ_LT(a,b)     ((int)((a)-(b)) < 0)
-#define SEQ_LEQ(a,b)    ((int)((a)-(b)) <= 0)
-#define SEQ_GT(a,b)     ((int)((a)-(b)) > 0)
-#define SEQ_GEQ(a,b)    ((int)((a)-(b)) >= 0)
+#define SEQ_LT(a,b)     INT_MOD_LT(a, b)
+#define SEQ_LEQ(a,b)    INT_MOD_LEQ(a, b)
+#define SEQ_GT(a,b)     INT_MOD_GT(a, b)
+#define SEQ_GEQ(a,b)    INT_MOD_GEQ(a, b)
 
-#define SEQ_MIN(a, b)   ((SEQ_LT(a, b)) ? (a) : (b))
-#define SEQ_MAX(a, b)   ((SEQ_GT(a, b)) ? (a) : (b))
+#define SEQ_MIN(a, b)   INT_MOD_MIN(a, b)
+#define SEQ_MAX(a, b)   INT_MOD_MAX(a, b)
 
 static struct conn_tcp*
 conn_tcp_cast(const struct conn* conn)
