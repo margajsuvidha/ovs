@@ -37,6 +37,7 @@ m4_define([CHECK_PMD_THREADS_CREATED], [
 m4_define([SED_NUMA_CORE_PATTERN], ["s/\(numa_id \)[[0-9]]*\( core_id \)[[0-9]]*:/\1<cleared>\2<cleared>:/"])
 
 AT_SETUP([PMD - creating a thread/add-port])
+AT_SKIP_IF([test "$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
 OVS_VSWITCHD_START([add-port br0 p0 -- set Interface p0 type=dummy-pmd])
 
 CHECK_CPU_DISCOVERED()
@@ -58,6 +59,7 @@ OVS_VSWITCHD_STOP
 AT_CLEANUP
 
 AT_SETUP([PMD - multiqueue support])
+AT_SKIP_IF([test "$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
 OVS_VSWITCHD_START([add-port br0 p0 -- set Interface p0 type=dummy-pmd])
 
 CHECK_CPU_DISCOVERED()
@@ -82,6 +84,7 @@ AT_CLEANUP
 
 
 AT_SETUP([PMD - pmd-cpu-mask/distribution of rx queues])
+AT_SKIP_IF([test "$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
 OVS_VSWITCHD_START([add-port br0 p0 -- set Interface p0 type=dummy-pmd options:n_rxq=8])
 
 CHECK_CPU_DISCOVERED(2)
@@ -124,6 +127,7 @@ AT_CLEANUP
 
 
 AT_SETUP([PMD - stats])
+AT_SKIP_IF([test "$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
 OVS_VSWITCHD_START([add-port br0 p0 -- set Interface p0 ofport_request=7 type=dummy-pmd options:n_rxq=4])
 
 CHECK_CPU_DISCOVERED()
