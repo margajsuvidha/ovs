@@ -42,6 +42,7 @@ m4_divert_pop([PREPARE_TESTS])
 
 m4_define([DPIF_NETDEV_DUMMY_IFACE],
   [AT_SETUP([dpif-netdev - $1 interface])
+   AT_SKIP_IF([test $2])
    # Create br0 with interfaces p1 and p7
    #    and br1 with interfaces p2 and p8
    # with p1 and p2 connected via unix domain socket
@@ -76,10 +77,11 @@ recirc_id=0,ip,in_port=8,vlan_tci=0x0000/0x1fff,dl_src=50:54:00:00:00:0b,dl_dst=
    AT_CLEANUP])
 
 DPIF_NETDEV_DUMMY_IFACE([dummy])
-DPIF_NETDEV_DUMMY_IFACE([dummy-pmd])
+DPIF_NETDEV_DUMMY_IFACE([dummy-pmd], ["$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
 
 m4_define([DPIF_NETDEV_MISS_FLOW_INSTALL],
   [AT_SETUP([dpif-netdev - miss upcall key matches flow_install - $1])
+   AT_SKIP_IF([test $2])
    OVS_VSWITCHD_START(
      [add-port br0 p1 -- set interface p1 type=$1 options:pstream=punix:$OVS_RUNDIR/p0.sock
       set bridge br0 datapath-type=dummy other-config:datapath-id=1234 \
@@ -115,10 +117,11 @@ recirc_id=0,ip,in_port=1,vlan_tci=0x0000/0x1fff,dl_src=50:54:00:00:00:09,dl_dst=
    AT_CLEANUP])
 
 DPIF_NETDEV_MISS_FLOW_INSTALL([dummy])
-DPIF_NETDEV_MISS_FLOW_INSTALL([dummy-pmd])
+DPIF_NETDEV_MISS_FLOW_INSTALL([dummy-pmd], ["$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
 
 m4_define([DPIF_NETDEV_MISS_FLOW_DUMP],
   [AT_SETUP([dpif-netdev - miss upcall key matches flow_dump - $1])
+   AT_SKIP_IF([test $2])
    OVS_VSWITCHD_START(
      [add-port br0 p1 -- set interface p1 type=$1 options:pstream=punix:$OVS_RUNDIR/p0.sock
       set bridge br0 datapath-type=dummy other-config:datapath-id=1234 \
@@ -158,4 +161,4 @@ skb_priority(0/0),skb_mark(0/0),recirc_id(0),dp_hash(0/0),in_port(1),eth(src=50:
    AT_CLEANUP])
 
 DPIF_NETDEV_MISS_FLOW_DUMP([dummy])
-DPIF_NETDEV_MISS_FLOW_DUMP([dummy-pmd])
+DPIF_NETDEV_MISS_FLOW_DUMP([dummy-pmd], ["$IS_WIN32" == "yes" -o "$IS_BSD" = "yes"])
