@@ -2045,11 +2045,10 @@ dpif_netdev_flow_get(const struct dpif *dpif, const struct dpif_flow_get *get)
     struct dp_netdev *dp = get_dp_netdev(dpif);
     struct dp_netdev_flow *netdev_flow;
     struct dp_netdev_pmd_thread *pmd;
-    struct hmapx to_find;
+    struct hmapx to_find = HMAPX_INITIALIZER(&to_find);
     struct hmapx_node *node;
     int error = EINVAL;
 
-    hmapx_init(&to_find);
     if (get->pmd_id == PMD_ID_NULL) {
         CMAP_FOR_EACH (pmd, node, &dp->poll_threads) {
             if (dp_netdev_pmd_try_ref(pmd) && !hmapx_add(&to_find, pmd)) {
@@ -2077,6 +2076,8 @@ dpif_netdev_flow_get(const struct dpif *dpif, const struct dpif_flow_get *get)
                                         get->flow, false);
             error = 0;
             break;
+        } else {
+            error = ENOENT;
         }
     }
 
